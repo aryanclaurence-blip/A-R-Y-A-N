@@ -1,0 +1,6 @@
+name: ARYAN
+type: extension
+description: ARYAN BIM extension. Wall Orientation QA is the first feature; additional tools will be added here.
+author: ARYAN
+min_revit_version: 2020
+max_revit_version: 2028

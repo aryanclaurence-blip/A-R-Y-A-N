@@ -1,0 +1,6 @@
+title: Wall Orientation QA
+tooltip: ARYAN — Validate wall orientation against reference elements in the active view.
+author: ARYAN
+highlight: new
+min_revit_version: 2020
+max_revit_version: 2028
