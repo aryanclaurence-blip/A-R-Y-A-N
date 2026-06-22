@@ -1,0 +1,19 @@
+title: |-
+  Color
+  Splasher Pro
+tooltip: >-
+  ARYAN — ColorSplasher Pro. Enterprise-grade BIM visualization tool.
+  Color visible elements by any parameter value with:
+  multi-parameter compound keys, live search, count column,
+  numeric heat maps, Revit link support, CSV/JSON export, and saved schemes.
+
+  Upgrade of pyRevit ColorSplasher. All original functionality preserved.
+  Requires an open Revit project.
+author: ARYAN (upgrade) / BIMOne Inc. (original ColorSplasher - MIT License 2021)
+highlight: new
+min_revit_version: 2019
+max_revit_version: 2027
+engine:
+  clean: true
+  persistent: true
+  full_frame: true
