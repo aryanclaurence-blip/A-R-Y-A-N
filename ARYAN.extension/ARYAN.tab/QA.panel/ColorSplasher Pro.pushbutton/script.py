@@ -3131,69 +3131,114 @@ def _load_params_on_demand_fallback(doc, view, category_int_id):
         return []
 
 
+def _get_common_builtin_parameters(category_int_id):
+    """
+    Get list of common built-in parameters for a category.
+    Returns list of (name, BuiltInParameter) tuples.
+    """
+    results = [
+        ("Comments", DB.BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS),
+        ("Mark", DB.BuiltInParameter.ALL_MODEL_MARK),
+        ("Type Mark", DB.BuiltInParameter.ALL_MODEL_TYPE_MARK),
+        ("Type Name", DB.BuiltInParameter.SYMBOL_NAME_PARAM),
+        ("Family Name", DB.BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM),
+        ("Phase Created", DB.BuiltInParameter.PHASE_CREATED),
+        ("Phase Demolished", DB.BuiltInParameter.PHASE_DEMOLISHED),
+        ("Workset", DB.BuiltInParameter.ELEM_PARTITION_PARAM),
+        ("Design Option", DB.BuiltInParameter.DESIGN_OPTION_ID),
+    ]
+    
+    # Category-specific additions
+    # Ceilings (-2000038)
+    if category_int_id == -2000038:
+        results.extend([
+            ("Level", DB.BuiltInParameter.SCHEDULE_LEVEL_PARAM),
+            ("Height Offset From Level", DB.BuiltInParameter.CEILING_HEIGHTPARAM),
+            ("Area", DB.BuiltInParameter.HOST_AREA_COMPUTED),
+            ("Volume", DB.BuiltInParameter.HOST_VOLUME_COMPUTED),
+            ("Thickness", DB.BuiltInParameter.CEILING_THICKNESS),
+        ])
+    # Cable Trays (-2000041) or Cable Tray Fittings (-2000043)
+    elif category_int_id in (-2000041, -2000043):
+        results.extend([
+            ("Reference Level", DB.BuiltInParameter.RBS_START_LEVEL_PARAM),
+            ("Service Type", DB.BuiltInParameter.RBS_DUCT_SERVICE_TYPE),
+            ("Size", DB.BuiltInParameter.RBS_CALCULATED_SIZE),
+            ("Length", DB.BuiltInParameter.CURVE_ELEM_LENGTH),
+            ("Width", DB.BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM),
+            ("Height", DB.BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM),
+        ])
+    # Walls (-2000011)
+    elif category_int_id == -2000011:
+        results.extend([
+            ("Base Constraint", DB.BuiltInParameter.WALL_BASE_CONSTRAINT),
+            ("Top Constraint", DB.BuiltInParameter.WALL_HEIGHT_TYPE),
+            ("Unconnected Height", DB.BuiltInParameter.WALL_USER_HEIGHT_PARAM),
+            ("Length", DB.BuiltInParameter.CURVE_ELEM_LENGTH),
+            ("Area", DB.BuiltInParameter.HOST_AREA_COMPUTED),
+            ("Volume", DB.BuiltInParameter.HOST_VOLUME_COMPUTED),
+        ])
+    # Floors (-2000032)
+    elif category_int_id == -2000032:
+        results.extend([
+            ("Level", DB.BuiltInParameter.LEVEL_PARAM),
+            ("Height Offset From Level", DB.BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM),
+            ("Area", DB.BuiltInParameter.HOST_AREA_COMPUTED),
+            ("Volume", DB.BuiltInParameter.HOST_VOLUME_COMPUTED),
+            ("Thickness", DB.BuiltInParameter.FLOOR_THICKNESS_PARAM),
+        ])
+        
+    return results
+
+
+def _get_custom_bound_parameters(doc, category_int_id):
+    """
+    Query the document's ParameterBindings to find all project/shared parameters bound to this category.
+    This is 100% crash-safe and does not touch any model elements.
+    """
+    results = []
+    try:
+        param_elements = DB.FilteredElementCollector(doc).OfClass(DB.ParameterElement)
+        for pe in param_elements:
+            try:
+                if not pe.IsValidObject:
+                    continue
+                binding = doc.ParameterBindings.Item[pe.GetDefinition()]
+                if binding and hasattr(binding, "Categories"):
+                    for cat in binding.Categories:
+                        if cat.Id.IntegerValue == category_int_id:
+                            results.append((pe.Name, pe.Id))
+                            break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return results
+
+
 def _load_params_on_demand(doc, view, category_int_id):
     """
-    Safely load parameters for a category using ParameterFilterUtilities.GetFilterableParametersInCommon.
-    This queries the Revit document's schema directly, requiring ZERO element instances.
-    This makes it 100% crash-proof even if the model contains corrupted elements.
+    Safely load parameters for a category using common built-ins and ParameterBindings.
+    Requires ZERO element instances and ZERO filterable parameter queries, making it 100% crash-proof.
     """
+    unique_params = {}
     try:
-        import System
-        from pyrevit.framework import List as FrameworkList
-
-        # Build category list
-        cat_ids = FrameworkList[DB.ElementId]()
-        cat_ids.Add(DB.ElementId(category_int_id))
-
-        # Native Revit API schema query
-        param_ids = DB.ParameterFilterUtilities.GetFilterableParametersInCommon(doc, cat_ids)
-
-        unique_params = {}
-        for pid in param_ids:
+        # 1. Load common built-in parameters
+        builtins = _get_common_builtin_parameters(category_int_id)
+        for name, bip in builtins:
             try:
-                name = None
-                is_builtin = pid.IntegerValue < 0
+                pid = DB.ElementId(bip)
+                mock_par = MockParameter(name, pid, is_builtin=True)
+                unique_params[name] = ParameterInfo(0, mock_par)
+            except Exception:
+                continue
 
-                if is_builtin:
-                    # Safest enum conversion in IronPython
-                    bip = None
-                    try:
-                        bip = System.Enum.ToObject(DB.BuiltInParameter, pid.IntegerValue)
-                    except Exception:
-                        try:
-                            bip = DB.BuiltInParameter(pid.IntegerValue)
-                        except Exception:
-                            continue
-                    
-                    if bip is None:
-                        continue
-
-                    if bip in (
-                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
-                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
-                    ):
-                        continue
-                    try:
-                        name = DB.LabelUtils.GetLabelFor(bip)
-                    except Exception:
-                        try:
-                            name = bip.ToString()
-                        except Exception:
-                            continue
-                else:
-                    pe = doc.GetElement(pid)
-                    if pe and pe.IsValidObject:
-                        name = pe.Name
-
-                if not name or not name.strip():
-                    continue
-
-                name = strip_accents(name)
-
-                # Check for duplicates case-insensitively
-                if name not in unique_params:
-                    mock_par = MockParameter(name, pid, is_builtin)
-                    unique_params[name] = ParameterInfo(0, mock_par)
+        # 2. Load custom bound parameters (Project/Shared parameters)
+        customs = _get_custom_bound_parameters(doc, category_int_id)
+        for name, pid in customs:
+            try:
+                mock_par = MockParameter(name, pid, is_builtin=False)
+                unique_params[name] = ParameterInfo(0, mock_par)
             except Exception:
                 continue
 
