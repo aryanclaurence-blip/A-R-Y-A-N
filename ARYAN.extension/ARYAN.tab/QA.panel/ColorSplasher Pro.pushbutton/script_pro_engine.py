@@ -391,8 +391,9 @@ def collect_elements_from_link(link_info, category_int_id, view=None):
         link_doc = link_info.link_doc
         link_name = link_info.link_name
 
+        import System
         bic = None
-        for sample_bic in _DB.System.Enum.GetValues(_DB.BuiltInCategory):
+        for sample_bic in System.Enum.GetValues(_DB.BuiltInCategory):
             if category_int_id == int(sample_bic):
                 bic = sample_bic
                 break
@@ -594,7 +595,8 @@ def get_range_values_multi(
     additional_param_names,
     view,
     doc,
-    link_elements=None
+    link_elements=None,
+    include_host=True
 ):
     """
     Build a value list with compound keys from any number of parameters.
@@ -619,17 +621,19 @@ def get_range_values_multi(
     if bic is None:
         return []
 
-    try:
-        collector = (
-            _DB.FilteredElementCollector(doc, view.Id)
-            .OfCategory(bic)
-            .WhereElementIsNotElementType()
-            .WhereElementIsViewIndependent()
-            .ToElements()
-        )
-        host_elements = [(ele, None) for ele in collector]
-    except Exception:
-        host_elements = []
+    host_elements = []
+    if include_host:
+        try:
+            collector = (
+                _DB.FilteredElementCollector(doc, view.Id)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .WhereElementIsViewIndependent()
+                .ToElements()
+            )
+            host_elements = [(ele, None) for ele in collector]
+        except Exception:
+            host_elements = []
 
     all_element_pairs = list(host_elements)
     if link_elements:
@@ -797,7 +801,8 @@ def get_range_values_heatmap(
     doc,
     num_bands=5,
     custom_ranges=None,
-    link_elements=None
+    link_elements=None,
+    include_host=True
 ):
     """
     Build a value list for heat map mode.
@@ -826,17 +831,19 @@ def get_range_values_heatmap(
     if bic is None:
         return [], [], ['Category BuiltInCategory not found']
 
-    try:
-        collector = (
-            _DB.FilteredElementCollector(doc, view.Id)
-            .OfCategory(bic)
-            .WhereElementIsNotElementType()
-            .WhereElementIsViewIndependent()
-            .ToElements()
-        )
-        host_elements = [(ele, None) for ele in collector]
-    except Exception:
-        host_elements = []
+    host_elements = []
+    if include_host:
+        try:
+            collector = (
+                _DB.FilteredElementCollector(doc, view.Id)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .WhereElementIsViewIndependent()
+                .ToElements()
+            )
+            host_elements = [(ele, None) for ele in collector]
+        except Exception:
+            host_elements = []
 
     all_element_pairs = list(host_elements)
     if link_elements:

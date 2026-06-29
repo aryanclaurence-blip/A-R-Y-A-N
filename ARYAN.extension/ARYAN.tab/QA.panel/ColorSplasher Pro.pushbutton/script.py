@@ -1549,6 +1549,9 @@ class ColorSplasherProWindow(forms.WPFWindow):
             # Host-only vs host+links
             use_links = bool(link_elements)
 
+            # Determine if host elements should be collected
+            include_host = not self._radio_links.IsChecked
+
             if is_heatmap and _PRO_ENGINE_OK:
                 # Heat map mode
                 num_bands_text = "5"
@@ -1565,7 +1568,8 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 value_items, ranges, errors = get_range_values_heatmap(
                     sel_cat, sel_param, view, doc,
                     num_bands=num_bands,
-                    link_elements=link_elements if use_links else None
+                    link_elements=link_elements if use_links else None,
+                    include_host=include_host
                 )
                 if errors and not value_items:
                     self._set_status("Heat map: no numeric values", success=False)
@@ -1585,18 +1589,22 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     sel_cat, sel_param,
                     additional_names,
                     view, doc,
-                    link_elements=link_elements if use_links else None
+                    link_elements=link_elements if use_links else None,
+                    include_host=include_host
                 )
                 self._all_value_items_raw = value_items
 
             else:
                 # Standard mode: use original get_range_values, then append link values
-                value_items = get_range_values(sel_cat, sel_param, view)
+                value_items = []
+                if include_host:
+                    value_items = get_range_values(sel_cat, sel_param, view)
                 # If links requested, run multi-param to include them
                 if use_links and _PRO_ENGINE_OK:
                     value_items_links = get_range_values_multi(
                         sel_cat, sel_param, [], view, doc,
-                        link_elements=link_elements
+                        link_elements=link_elements,
+                        include_host=False
                     )
                     # Merge: keep host values, add link-only values
                     existing_values = set(vi.value for vi in value_items)
