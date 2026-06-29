@@ -501,7 +501,7 @@
                             <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto" Margin="0,0,0,4">
                                 <StackPanel x:Name="_panel_multi_params"/>
                             </ScrollViewer>
-                            <Button x:Name="_btn_add_param" Style="{StaticResource BtnSecondary}" Height="30" Content="+ Add Parameter" Click="btn_add_param_click"/>
+                            <Button x:Name="_btn_add_param" Style="{StaticResource BtnSecondary}" Height="30" Content="+ Add Parameter" Click="btn_add_param_click" ToolTip="Add another parameter dropdown for compound key coloring"/>
                         </StackPanel>
                     </StackPanel>
                 </Grid>
@@ -592,9 +592,9 @@
                                 <ColumnDefinition Width="8"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <RadioButton x:Name="_radio_host" Grid.Column="0" Style="{StaticResource SourceRadioButton}" Content="Host" IsChecked="True"/>
-                            <RadioButton x:Name="_radio_links" Grid.Column="2" Style="{StaticResource SourceRadioButton}" Content="Links"/>
-                            <RadioButton x:Name="_radio_all" Grid.Column="4" Style="{StaticResource SourceRadioButton}" Content="Host + Links"/>
+                            <RadioButton x:Name="_radio_host" Grid.Column="0" Style="{StaticResource SourceRadioButton}" Content="Host" IsChecked="True" Checked="on_source_changed"/>
+                            <RadioButton x:Name="_radio_links" Grid.Column="2" Style="{StaticResource SourceRadioButton}" Content="Links" Checked="on_source_changed"/>
+                            <RadioButton x:Name="_radio_all" Grid.Column="4" Style="{StaticResource SourceRadioButton}" Content="Host + Links" Checked="on_source_changed"/>
                         </Grid>
                         <!-- Link Dropdown row -->
                         <Grid Grid.Row="2">
@@ -606,10 +606,10 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <ComboBox x:Name="_combo_links" Grid.Column="0" Style="{StaticResource CleanCombo}" ToolTip="Select specific link"/>
-                            <Button Grid.Column="2" Style="{StaticResource BtnBase}" Width="34" Padding="0">
+                            <Button Grid.Column="2" Style="{StaticResource BtnBase}" Width="34" Padding="0" ToolTip="View Revit Link Instances info">
                                 <TextBlock Text="&#xE71B;" FontFamily="Segoe MDL2 Assets" FontSize="14" HorizontalAlignment="Center"/>
                             </Button>
-                            <Button Grid.Column="4" Style="{StaticResource BtnBase}" Width="34" Padding="0">
+                            <Button Grid.Column="4" Style="{StaticResource BtnBase}" Width="34" Padding="0" ToolTip="Refresh Revit links from document">
                                 <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="14" HorizontalAlignment="Center"/>
                             </Button>
                         </Grid>
@@ -731,7 +731,7 @@
                                 <ComboBoxItem Content="Count ↓" Tag="count_desc"/>
                             </ComboBox>
                         </StackPanel>
-                        <Button Grid.Column="3" Style="{StaticResource BtnBase}" Width="28" Height="28" Padding="0">
+                        <Button Grid.Column="3" Style="{StaticResource BtnBase}" Width="28" Height="28" Padding="0" ToolTip="Toggle columns list view">
                             <TextBlock Text="&#xE8EC;" FontFamily="Segoe MDL2 Assets" FontSize="12" HorizontalAlignment="Center"/>
                         </Button>
                     </Grid>
@@ -856,9 +856,9 @@
                                 <ColumnDefinition Width="10"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Button x:Name="_button_random_colors" Grid.Column="0" Style="{StaticResource BtnActionTile}" Tag="random" Content="Random Colors" Click="button_click_random_colors"/>
-                            <Button x:Name="_button_gradient_colors" Grid.Column="2" Style="{StaticResource BtnActionTile}" Tag="gradient" Content="Gradient" Click="button_click_gradient_colors"/>
-                            <Button x:Name="_button_heatmap_gen" Grid.Column="4" Style="{StaticResource BtnActionTile}" Tag="heatmap" Content="Heat Map" Click="on_mode_changed"/>
+                            <Button x:Name="_button_random_colors" Grid.Column="0" Style="{StaticResource BtnActionTile}" Tag="random" Content="Random Colors" Click="button_click_random_colors" ToolTip="Generate random colors for all values"/>
+                            <Button x:Name="_button_gradient_colors" Grid.Column="2" Style="{StaticResource BtnActionTile}" Tag="gradient" Content="Gradient" Click="button_click_gradient_colors" ToolTip="Generate a color gradient between start and end colors"/>
+                            <Button x:Name="_button_heatmap_gen" Grid.Column="4" Style="{StaticResource BtnActionTile}" Tag="heatmap" Content="Heat Map" Click="on_mode_changed" ToolTip="Apply a heat map color range for numeric values"/>
                         </Grid>
                     </Grid>
                 </Border>
@@ -913,13 +913,13 @@
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="10. ACTIONS" Style="{StaticResource BentoLabel}"/>
                             <StackPanel Grid.Row="1" VerticalAlignment="Center">
-                                <Button x:Name="_button_create_legend" Style="{StaticResource BtnSecondary}" Margin="0,0,0,10" Click="button_click_create_legend">
+                                <Button x:Name="_button_create_legend" Style="{StaticResource BtnSecondary}" Margin="0,0,0,10" Click="button_click_create_legend" ToolTip="Generate a legend of colors in a dedicated Revit view">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="&#xE80A;" FontFamily="Segoe MDL2 Assets" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
                                         <TextBlock Text="Create Legend" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
                                     </StackPanel>
                                 </Button>
-                                <Button x:Name="_button_create_view_filters" Style="{StaticResource BtnSecondary}" Click="button_click_create_view_filters">
+                                <Button x:Name="_button_create_view_filters" Style="{StaticResource BtnSecondary}" Click="button_click_create_view_filters" ToolTip="Create Revit View Filters mapping categories and parameters to colors">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="&#xE71C;" FontFamily="Segoe MDL2 Assets" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
                                         <TextBlock Text="Create View Filters" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
@@ -941,7 +941,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- Reset -->
-            <Button x:Name="_button_reset_colors" Grid.Column="0" Style="{StaticResource BtnDanger}" Click="button_click_reset" Width="140">
+            <Button x:Name="_button_reset_colors" Grid.Column="0" Style="{StaticResource BtnDanger}" Click="button_click_reset" Width="140" ToolTip="Remove color overrides from all elements in the active view">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" Margin="0,0,8,0" VerticalAlignment="Center"/>
                     <TextBlock Text="Reset Overrides" VerticalAlignment="Center"/>
@@ -950,7 +950,7 @@
 
             <!-- Middle Actions -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
-                <Button x:Name="_button_save_load_scheme" Style="{StaticResource BtnBase}" Click="save_load_color_scheme" Margin="0,0,12,0" Width="180">
+                <Button x:Name="_button_save_load_scheme" Style="{StaticResource BtnBase}" Click="save_load_color_scheme" Margin="0,0,12,0" Width="180" ToolTip="Save current color scheme or load a saved scheme from file">
                     <Grid Width="150">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -962,7 +962,7 @@
                         <TextBlock Grid.Column="2" Text="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="10" VerticalAlignment="Center"/>
                     </Grid>
                 </Button>
-                <Button Style="{StaticResource BtnBase}" Width="130" Click="button_click_export_csv">
+                <Button Style="{StaticResource BtnBase}" Width="130" Click="button_click_export_csv" ToolTip="Export values, counts, and colors report to CSV or JSON">
                     <Grid Width="100">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -981,7 +981,7 @@
             </StackPanel>
 
             <!-- Apply -->
-            <Button x:Name="_button_set_colors" Grid.Column="2" Style="{StaticResource BtnPrimary}" Click="button_click_set_colors" Width="320" Height="48">
+            <Button x:Name="_button_set_colors" Grid.Column="2" Style="{StaticResource BtnPrimary}" Click="button_click_set_colors" Width="320" Height="48" ToolTip="Apply colors to all elements of selected category in active Revit view">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE790;" FontFamily="Segoe MDL2 Assets" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="18"/>
                     <TextBlock Text="Apply Colors" VerticalAlignment="Center" FontSize="14" FontWeight="Bold"/>

@@ -1726,6 +1726,13 @@ class ColorSplasherProWindow(forms.WPFWindow):
         ):
             self._collect_value_items()
 
+    def on_source_changed(self, sender, e):
+        """Called when link/source radio selection changes."""
+        if not getattr(self, "_initialized", False):
+            return
+        if self._categories.SelectedIndex > 0:
+            self.update_filter(self._categories, None)
+
     # ------------------------------------------------------------------
     # NEW: Secondary / Tertiary Parameter Selection handler
     # ------------------------------------------------------------------
