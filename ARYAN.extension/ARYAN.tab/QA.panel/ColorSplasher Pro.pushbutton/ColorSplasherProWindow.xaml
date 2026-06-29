@@ -665,10 +665,10 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <ComboBox x:Name="_combo_links" Grid.Column="0" Style="{StaticResource CleanCombo}" ToolTip="Select specific link"/>
-                            <Button Grid.Column="2" Style="{StaticResource BtnBase}" Width="34" Padding="0" ToolTip="View Revit Link Instances info">
+                            <Button Grid.Column="2" Style="{StaticResource BtnBase}" Width="34" Padding="0" ToolTip="View Revit Link Instances info" Click="button_click_link_info">
                                 <TextBlock Text="&#xE71B;" FontFamily="Segoe MDL2 Assets" FontSize="14" HorizontalAlignment="Center"/>
                             </Button>
-                            <Button Grid.Column="4" Style="{StaticResource BtnBase}" Width="34" Padding="0" ToolTip="Refresh Revit links from document">
+                            <Button Grid.Column="4" Style="{StaticResource BtnBase}" Width="34" Padding="0" ToolTip="Refresh Revit links from document" Click="button_click_refresh_links">
                                 <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="14" HorizontalAlignment="Center"/>
                             </Button>
                         </Grid>

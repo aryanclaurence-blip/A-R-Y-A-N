@@ -635,7 +635,7 @@ def get_range_values_multi(
                         if ele and ele.IsValidObject and ele.Category:
                             # Use helper function or manual int id retrieval
                             # Let's import get_element_int_id from script_pro_engine
-                            if int(ele.Category.Id.IntegerValue) == category_info.int_id:
+                            if get_element_int_id(ele.Category.Id) == category_info.int_id:
                                 if not isinstance(ele, _DB.ElementType):
                                     collector.append(ele)
                     except Exception:
@@ -867,7 +867,7 @@ def get_range_values_heatmap(
                     try:
                         ele = doc.GetElement(eid)
                         if ele and ele.IsValidObject and ele.Category:
-                            if int(ele.Category.Id.IntegerValue) == category_info.int_id:
+                            if get_element_int_id(ele.Category.Id) == category_info.int_id:
                                 if not isinstance(ele, _DB.ElementType):
                                     collector.append(ele)
                     except Exception:
@@ -903,14 +903,14 @@ def get_range_values_heatmap(
         val_str = get_param_value_safe(ele, primary_param_name, ele_doc)
         f = try_parse_float(val_str)
         if f is not None:
-            numeric_pairs.append((ele.Id, f))
+            numeric_pairs.append((ele.Id, f, link_name))
         else:
             parse_errors.append(ele.Id)
 
     if not numeric_pairs:
         return [], [], parse_errors + ['No numeric values found for parameter']
 
-    all_floats = [v for (_, v) in numeric_pairs]
+    all_floats = [v for (_, v, _) in numeric_pairs]
 
     ranges = build_heat_map_ranges(all_floats, num_bands=num_bands, custom_ranges=custom_ranges)
 
@@ -931,6 +931,7 @@ def get_range_values_heatmap(
         vi.n3 = rng.b
         vi.values_double = []
         vi.link_name = ''
+        vi._linked_element_id_ints = set()
         vi.ele_id = vi_ele_id
         try:
             from pyrevit.framework import Drawing
@@ -939,7 +940,7 @@ def get_range_values_heatmap(
             vi.colour = None
         range_values.append((vi, rng))
 
-    for (ele_id, f_val) in numeric_pairs:
+    for (ele_id, f_val, link_name) in numeric_pairs:
         rng = classify_heat_map(f_val, ranges)
         if rng is not None:
             for vi, vi_rng in range_values:
@@ -948,6 +949,11 @@ def get_range_values_heatmap(
                         vi.ele_id.Add(ele_id)
                     except Exception:
                         vi.ele_id.append(ele_id)
+                    if link_name:
+                        try:
+                            vi._linked_element_id_ints.add(get_element_int_id(ele_id))
+                        except Exception:
+                            pass
                     vi.values_double.append(f_val)
                     break
 
