@@ -100,6 +100,10 @@ CAT_EXCLUDED = (
     -1,
 )
 
+LINK_TEMP_DIRECTSHAPE_NAME = "ColorSplasherPro_LinkOverlay"
+LEGACY_LINK_TEMP_DIRECTSHAPE_NAME = "ColorSplasherPro_Temp"
+
+
 
 # ===========================================================================
 # UNCHANGED: Original external event handlers — SubscribeView, ApplyColors,
@@ -192,9 +196,7 @@ class ApplyColors(UI.IExternalEventHandler):
             if wndw._categories.SelectedItem is None:
                 return
             sel_cat_row = wndw._categories.SelectedItem
-            row = wndw._get_data_row_from_item(
-                sel_cat_row, wndw._categories.SelectedIndex
-            )
+            row = wndw._get_category_row(sel_cat_row, wndw._categories.SelectedIndex)
             if row is None:
                 return
             sel_cat = row["Value"]
@@ -208,15 +210,13 @@ class ApplyColors(UI.IExternalEventHandler):
                 if wndw._list_box1.SelectedIndex == 0:
                     sel_param_row = wndw._list_box1.SelectedItem
                     if sel_param_row is not None:
-                        param_row = wndw._get_data_row_from_item(sel_param_row, 0)
+                        param_row = wndw._get_parameter_row(sel_param_row, 0)
                         if param_row is not None and param_row["Value"] == 0:
                             return
                 return
 
             sel_param_row = wndw._list_box1.SelectedItem
-            param_row = wndw._get_data_row_from_item(
-                sel_param_row, wndw._list_box1.SelectedIndex
-            )
+            param_row = wndw._get_parameter_row(sel_param_row, wndw._list_box1.SelectedIndex)
             if param_row is None:
                 return
             checked_param = param_row["Value"]
@@ -227,7 +227,7 @@ class ApplyColors(UI.IExternalEventHandler):
             for indx in range(wndw.list_box2.Items.Count):
                 try:
                     item = wndw.list_box2.Items[indx]
-                    row = wndw._get_data_row_from_item(item, indx)
+                    row = wndw._get_value_row(item, indx)
                     if row is None:
                         continue
                     value_item = row["Value"]
@@ -336,10 +336,10 @@ class ResetColors(UI.IExternalEventHandler):
                 sel_cat = 0
             else:
                 sel_cat_row = wndw._categories.SelectedItem
-                if hasattr(sel_cat_row, "Row"):
-                    sel_cat = sel_cat_row.Row["Value"]
-                else:
-                    sel_cat = wndw._categories.SelectedItem["Value"]
+                cat_row = wndw._get_category_row(
+                    sel_cat_row, wndw._categories.SelectedIndex
+                )
+                sel_cat = cat_row["Value"] if cat_row is not None else 0
             if sel_cat == 0:
                 task_no_cat = UI.TaskDialog("ColorSplasher Pro")
                 task_no_cat.MainInstruction = "Please select a category to reset the colours."
@@ -377,7 +377,7 @@ class ResetColors(UI.IExternalEventHandler):
                 try:
                     ds_collector = DB.FilteredElementCollector(new_doc).OfClass(DB.DirectShape).ToElements()
                     for ds in ds_collector:
-                        if ds.Name == "ColorSplasherPro_Temp":
+                        if ds.Name in (LINK_TEMP_DIRECTSHAPE_NAME, LEGACY_LINK_TEMP_DIRECTSHAPE_NAME):
                             try:
                                 new_doc.Delete(ds.Id)
                             except Exception:
@@ -442,12 +442,8 @@ class CreateLegend(UI.IExternalEventHandler):
                 new_legend = new_doc.GetElement(new_id_legend)
                 sel_cat_row = wndw._categories.SelectedItem
                 sel_par_row = wndw._list_box1.SelectedItem
-                cat_row = wndw._get_data_row_from_item(
-                    sel_cat_row, wndw._categories.SelectedIndex
-                )
-                par_row = wndw._get_data_row_from_item(
-                    sel_par_row, wndw._list_box1.SelectedIndex
-                )
+                cat_row = wndw._get_category_row(sel_cat_row, wndw._categories.SelectedIndex)
+                par_row = wndw._get_parameter_row(sel_par_row, wndw._list_box1.SelectedIndex)
                 if cat_row is None or par_row is None:
                     t.RollBack()
                     return
@@ -565,7 +561,7 @@ class CreateLegend(UI.IExternalEventHandler):
                 for indx, y in enumerate(list_y):
                     try:
                         vw_item = wndw.list_box2.Items[indx]
-                        row = wndw._get_data_row_from_item(vw_item, indx)
+                        row = wndw._get_value_row(vw_item, indx)
                         if row is None:
                             continue
                         item = row["Value"]
@@ -679,12 +675,8 @@ class CreateFilters(UI.IExternalEventHandler):
                 with revit.Transaction("Create View Filters"):
                     sel_cat_row = wndw._categories.SelectedItem
                     sel_par_row = wndw._list_box1.SelectedItem
-                    cat_row = wndw._get_data_row_from_item(
-                        sel_cat_row, wndw._categories.SelectedIndex
-                    )
-                    par_row = wndw._get_data_row_from_item(
-                        sel_par_row, wndw._list_box1.SelectedIndex
-                    )
+                    cat_row = wndw._get_category_row(sel_cat_row, wndw._categories.SelectedIndex)
+                    par_row = wndw._get_parameter_row(sel_par_row, wndw._list_box1.SelectedIndex)
                     if cat_row is None or par_row is None:
                         return
                     sel_cat = cat_row["Value"]
@@ -698,7 +690,7 @@ class CreateFilters(UI.IExternalEventHandler):
                     items_listbox = wndw.list_box2.Items
                     for i in range(items_listbox.Count):
                         vw_item = wndw.list_box2.Items[i]
-                        row = wndw._get_data_row_from_item(vw_item, i)
+                        row = wndw._get_value_row(vw_item, i)
                         if row is None:
                             continue
                         item = row["Value"]
@@ -866,6 +858,97 @@ class CategoryInfo:
         self.par = param
 
 
+def _append_transformed_solids(geometry_element, transform, output):
+    """Append positive-volume solids from a linked element geometry tree."""
+    if geometry_element is None:
+        return
+    for geom_obj in geometry_element:
+        try:
+            if isinstance(geom_obj, DB.Solid):
+                if geom_obj.Volume > 0:
+                    output.append(DB.SolidUtils.CreateTransformed(geom_obj, transform))
+            elif isinstance(geom_obj, DB.GeometryInstance):
+                _append_transformed_solids(
+                    geom_obj.GetInstanceGeometry(),
+                    transform,
+                    output
+                )
+        except Exception:
+            continue
+
+
+def _directshape_category_id(category_info):
+    """Return a DirectShape-compatible host category id for an overlay."""
+    try:
+        cat_id = DB.ElementId(category_info.int_id)
+        if hasattr(DB.DirectShape, "IsValidCategoryId"):
+            if DB.DirectShape.IsValidCategoryId(cat_id):
+                return cat_id
+        else:
+            return cat_id
+    except Exception:
+        pass
+    return DB.ElementId(DB.BuiltInCategory.OST_GenericModel)
+
+
+def create_link_overlay_directshape(doc, view, category_info, link_meta, overrides):
+    """Create a host-side DirectShape overlay for one linked element.
+
+    Revit host views cannot apply per-element overrides directly to ElementIds
+    that belong to a linked document.  To make linked elements colorizable from
+    the host model, we create a temporary DirectShape from the linked element's
+    transformed solids and apply the selected overrides to that overlay.
+    """
+    link_doc = link_meta.get("link_doc")
+    link_inst = link_meta.get("link_instance")
+    element_id = link_meta.get("element_id")
+    if link_doc is None or link_inst is None or element_id is None:
+        return None
+
+    linked_element = link_doc.GetElement(element_id)
+    if linked_element is None:
+        return None
+
+    options = DB.Options()
+    try:
+        options.View = view
+    except Exception:
+        pass
+    try:
+        options.IncludeNonVisibleObjects = False
+    except Exception:
+        pass
+    try:
+        options.DetailLevel = DB.ViewDetailLevel.Fine
+    except Exception:
+        pass
+
+    geometry = linked_element.get_Geometry(options)
+    transformed_geometry = []
+    _append_transformed_solids(
+        geometry,
+        link_inst.GetTotalTransform(),
+        transformed_geometry
+    )
+    if not transformed_geometry:
+        return None
+
+    from System.Collections.Generic import List as GenericList
+    ds = DB.DirectShape.CreateElement(doc, _directshape_category_id(category_info))
+    ds.Name = LINK_TEMP_DIRECTSHAPE_NAME
+    try:
+        ds.ApplicationId = "ColorSplasherPro"
+        ds.ApplicationDataId = "link:{0}:element:{1}".format(
+            link_meta.get("link_instance_id_int"),
+            link_meta.get("element_id_int")
+        )
+    except Exception:
+        pass
+    ds.SetShape(GenericList[DB.GeometryObject](transformed_geometry))
+    view.SetElementOverrides(ds.Id, overrides)
+    return ds.Id
+
+
 # ===========================================================================
 # NEW: ApplyColorsPro — multi-param / heat-map / link-aware color application
 # ===========================================================================
@@ -904,7 +987,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
             for indx in range(wndw.list_box2.Items.Count):
                 try:
                     item = wndw.list_box2.Items[indx]
-                    row = wndw._get_data_row_from_item(item, indx)
+                    row = wndw._get_value_row(item, indx)
                     if row is None:
                         continue
                     vi = row["Value"]
@@ -921,7 +1004,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
             sel_cat_row = wndw._categories.SelectedItem
             if sel_cat_row is None:
                 return
-            cat_row = wndw._get_data_row_from_item(sel_cat_row, wndw._categories.SelectedIndex)
+            cat_row = wndw._get_category_row(sel_cat_row, wndw._categories.SelectedIndex)
             if cat_row is None:
                 return
             sel_cat = cat_row["Value"]
@@ -977,45 +1060,21 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                             ogs.SetCutBackgroundPatternId(solid_fill_id)
                             
                     for idt in vi.ele_id:
-                        idt_int = get_element_int_id(idt)
-                        registry = getattr(wndw, '_link_elements_registry', {})
-                        
-                        if idt_int in registry:
-                            link_inst, link_doc = registry[idt_int]
-                            try:
-                                linked_element = link_doc.GetElement(idt)
-                                if linked_element:
-                                    # Create DirectShape in host to represent link element
-                                    options = DB.Options()
-                                    options.View = view
-                                    geom_elem = linked_element.get_Geometry(options)
-                                    
-                                    if geom_elem:
-                                        link_transform = link_inst.GetTotalTransform()
-                                        transformed_geometry = []
-                                        
-                                        for geom_obj in geom_elem:
-                                            if isinstance(geom_obj, DB.GeometryInstance):
-                                                inst_geom = geom_obj.GetInstanceGeometry()
-                                                for obj in inst_geom:
-                                                    if isinstance(obj, DB.Solid) and obj.Volume > 0:
-                                                        transformed_solid = DB.SolidUtils.CreateTransformed(obj, link_transform)
-                                                        transformed_geometry.append(transformed_solid)
-                                            elif isinstance(geom_obj, DB.Solid) and geom_obj.Volume > 0:
-                                                transformed_solid = DB.SolidUtils.CreateTransformed(geom_obj, link_transform)
-                                                transformed_geometry.append(transformed_solid)
-                                                
-                                        if transformed_geometry:
-                                            from System.Collections.Generic import List as WpfList
-                                            ds = DB.DirectShape.CreateElement(new_doc, DB.ElementId(sel_cat.int_id))
-                                            ds.Name = "ColorSplasherPro_Temp"
-                                            ds.SetShape(WpfList[DB.GeometryObject](transformed_geometry))
-                                            
-                                            # Apply graphic overrides to DirectShape
-                                            view.SetElementOverrides(ds.Id, ogs)
-                                            wndw._temp_direct_shapes.append(ds.Id)
-                            except Exception as ds_ex:
-                                logger.debug("Failed to override linked element DirectShape: %s", str(ds_ex))
+                        link_matches = wndw._get_link_registry_matches(idt, vi)
+
+                        if link_matches:
+                            for link_meta in link_matches:
+                                try:
+                                    overlay_id = create_link_overlay_directshape(
+                                        new_doc, view, sel_cat, link_meta, ogs
+                                    )
+                                    if overlay_id is not None:
+                                        wndw._temp_direct_shapes.append(overlay_id)
+                                except Exception as ds_ex:
+                                    logger.debug(
+                                        "Failed to create linked-element overlay: %s",
+                                        str(ds_ex)
+                                    )
                         else:
                             # Host element
                             try:
@@ -1197,6 +1256,10 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
         # Load links into dropdown
         self._refresh_links()
+        try:
+            self._combo_links.SelectionChanged += self.on_link_selection_changed
+        except Exception:
+            pass
 
         # Sort
         try:
@@ -1254,17 +1317,19 @@ class ColorSplasherProWindow(forms.WPFWindow):
             sel_cat_row = self._categories.SelectedItem
             if sel_cat_row is None:
                 return
-            row = self._get_data_row_from_item(sel_cat_row, self._categories.SelectedIndex)
+            row = self._get_category_row(sel_cat_row, self._categories.SelectedIndex)
             if row is None:
                 return
             sel_cat = row["Value"]
             if sel_cat == 0:
                 return
 
-            if not sel_cat.par:
-                param_names = ["No Parameters Available"]
-            else:
+            if self._all_parameters:
+                param_names = ["(none)"] + [name for name, _ in self._all_parameters]
+            elif sel_cat.par:
                 param_names = ["(none)"] + [p.name for p in sel_cat.par]
+            else:
+                param_names = ["No Parameters Available"]
 
             if not self._dynamic_rows:
                 self._add_parameter_dropdown()
@@ -1359,21 +1424,63 @@ class ColorSplasherProWindow(forms.WPFWindow):
     # Data row accessor (from original — unchanged)
     # ------------------------------------------------------------------
 
-    def _get_data_row_from_item(self, item, item_index=None):
-        from System.Data import DataRowView
+    def _get_data_row_from_item(self, item, item_index=None, table=None):
+        """Return the backing DataRow for a WPF-bound item.
 
+        WPF normally exposes DataTable-bound ComboBox/ListView items as
+        DataRowView objects, but pyRevit/IronPython can occasionally surface
+        raw values during selection commits or after an ItemsSource refresh.
+        The previous fallback always indexed the values table, so category and
+        parameter selections could resolve to the wrong row (or no row at all),
+        making category clicks appear to do nothing.  Accepting the source table
+        keeps the fallback aligned with the control that raised the event.
+        """
+        from System.Data import DataRow, DataRowView
+
+        if item is None:
+            return None
         if isinstance(item, DataRowView):
             return item.Row
-        elif hasattr(item, "Row"):
+        if isinstance(item, DataRow):
+            return item
+        if hasattr(item, "Row"):
             return item.Row
-        elif (
-            item_index is not None
-            and hasattr(self, "_table_data_3")
-            and self._table_data_3 is not None
-        ):
-            if item_index < self._table_data_3.Rows.Count:
-                return self._table_data_3.Rows[item_index]
+
+        source_table = table
+        if source_table is None:
+            source_table = getattr(self, "_table_data_3", None)
+
+        if item_index is not None and source_table is not None:
+            try:
+                if 0 <= item_index < source_table.Rows.Count:
+                    return source_table.Rows[item_index]
+            except Exception:
+                pass
         return None
+
+    def _get_category_row(self, item=None, item_index=None):
+        """Resolve a category ComboBox selection to its category table row."""
+        if item is None:
+            item = self._categories.SelectedItem
+        if item_index is None:
+            item_index = self._categories.SelectedIndex
+        return self._get_data_row_from_item(item, item_index, self.table_data)
+
+    def _get_parameter_row(self, item=None, item_index=None):
+        """Resolve a primary parameter ComboBox selection to its table row."""
+        if item is None:
+            item = self._list_box1.SelectedItem
+        if item_index is None:
+            item_index = self._list_box1.SelectedIndex
+        return self._get_data_row_from_item(item, item_index, self._table_data_2)
+
+    def _get_value_row(self, item=None, item_index=None):
+        """Resolve a value ListView selection to its values table row."""
+        if item is None:
+            item = self.list_box2.SelectedItem
+        if item_index is None:
+            item_index = self.list_box2.SelectedIndex
+        return self._get_data_row_from_item(item, item_index, self._table_data_3)
 
     # ------------------------------------------------------------------
     # Placeholder visibility (from original — unchanged)
@@ -1480,6 +1587,46 @@ class ColorSplasherProWindow(forms.WPFWindow):
             except Exception:
                 pass
 
+    def _register_link_element(self, element, link_info, link_name=None):
+        """Register a linked element for later host-side overlay colorization."""
+        try:
+            ele_id_int = get_element_int_id(element.Id)
+            link_inst_id_int = get_element_int_id(link_info.link_instance.Id)
+            meta = {
+                "link_instance": link_info.link_instance,
+                "link_doc": link_info.link_doc,
+                "link_name": link_name or link_info.link_name,
+                "element_id": element.Id,
+                "element_id_int": ele_id_int,
+                "link_instance_id_int": link_inst_id_int,
+            }
+            registry = getattr(self, "_link_elements_registry", None)
+            if registry is None:
+                registry = {}
+                self._link_elements_registry = registry
+            registry.setdefault(ele_id_int, []).append(meta)
+        except Exception as ex:
+            logger.debug("Failed to register linked element: %s", str(ex))
+
+    def _get_link_registry_matches(self, element_id, value_item=None):
+        """Return registered linked-element metadata matching a value item/id."""
+        try:
+            id_int = get_element_int_id(element_id)
+            matches = list(getattr(self, "_link_elements_registry", {}).get(id_int, []))
+            if not matches or value_item is None:
+                return matches
+            link_name = getattr(value_item, "link_name", None)
+            if link_name:
+                filtered = [m for m in matches if m.get("link_name") == link_name]
+                if filtered:
+                    return filtered
+            linked_ids = getattr(value_item, "_linked_element_id_ints", None)
+            if linked_ids is not None and id_int in linked_ids:
+                return matches
+            return []
+        except Exception:
+            return []
+
     # ------------------------------------------------------------------
     # NEW: Collect value items considering mode + link selection
     # ------------------------------------------------------------------
@@ -1501,7 +1648,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             if sel_cat_row is None or self._categories.SelectedIndex <= 0:
                 self._set_status("Please select a category", success=False)
                 return
-            cat_row = self._get_data_row_from_item(sel_cat_row, self._categories.SelectedIndex)
+            cat_row = self._get_category_row(sel_cat_row, self._categories.SelectedIndex)
             if cat_row is None:
                 return
             sel_cat = cat_row["Value"]
@@ -1513,7 +1660,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             if sel_par_row is None or self._list_box1.SelectedIndex <= 0:
                 self._set_status("Please select a parameter", success=False)
                 return
-            par_row = self._get_data_row_from_item(sel_par_row, self._list_box1.SelectedIndex)
+            par_row = self._get_parameter_row(sel_par_row, self._list_box1.SelectedIndex)
             if par_row is None:
                 return
             sel_param = par_row["Value"]
@@ -1529,21 +1676,12 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     host_only = self._radio_host.IsChecked
 
                     if include_links or not host_only:
-                        # Determine which links to collect
-                        selected_link_idx = self._combo_links.SelectedIndex
-                        links_to_use = []
-                        if selected_link_idx <= 0:
-                            links_to_use = self._loaded_links
-                        else:
-                            idx = selected_link_idx - 1
-                            if 0 <= idx < len(self._loaded_links):
-                                links_to_use = [self._loaded_links[idx]]
+                        links_to_use = self._get_selected_link_infos()
 
                         for li in links_to_use:
                             elems = collect_elements_from_link(li, sel_cat.int_id, view)
-                            for (ele, _) in elems:
-                                ele_id_int = get_element_int_id(ele.Id)
-                                self._link_elements_registry[ele_id_int] = (li.link_instance, li.link_doc)
+                            for (ele, link_name) in elems:
+                                self._register_link_element(ele, li, link_name)
                             link_elements.extend(elems)
                 except Exception as ex:
                     logger.debug("Failed to populate link elements registry: %s", str(ex))
@@ -1675,7 +1813,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             if sender.SelectedIndex == 0:
                 selected_item = sender.SelectedItem
                 if selected_item is not None:
-                    row = self._get_data_row_from_item(selected_item, 0)
+                    row = self._get_parameter_row(selected_item, 0)
                     if row is not None and row["Value"] == 0:
                         self._table_data_3 = self._create_empty_table()
                         self.list_box2.ItemsSource = self._table_data_3.DefaultView
@@ -1694,6 +1832,53 @@ class ColorSplasherProWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    def _get_selected_link_infos(self):
+        """Return the currently selected link(s), or all loaded links."""
+        try:
+            selected_link_idx = self._combo_links.SelectedIndex
+            if selected_link_idx <= 0:
+                return list(self._loaded_links)
+            idx = selected_link_idx - 1
+            if 0 <= idx < len(self._loaded_links):
+                return [self._loaded_links[idx]]
+        except Exception:
+            pass
+        return []
+
+    def _load_parameters_for_current_source(self, sel_cat):
+        """Load category parameters from host, links, or both based on source UI."""
+        doc = revit.DOCS.doc
+        include_links = (
+            hasattr(self, "_radio_links")
+            and (self._radio_links.IsChecked or self._radio_all.IsChecked)
+        )
+        links_only = hasattr(self, "_radio_links") and self._radio_links.IsChecked
+
+        # Host-only can use the schema-based cache. Link-aware modes need
+        # element sampling as linked documents can expose parameters that the
+        # host category schema does not contain.
+        if not include_links:
+            if not sel_cat.par:
+                sel_cat.par = _load_params_on_demand(doc, self.crt_view, sel_cat.int_id)
+            return sel_cat.par
+
+        link_params = collect_parameters_for_category(
+            doc,
+            self.crt_view,
+            sel_cat.int_id,
+            include_links=True,
+            loaded_links=self._get_selected_link_infos(),
+            include_host=not links_only
+        )
+        if link_params:
+            return link_params
+
+        if not links_only:
+            if not sel_cat.par:
+                sel_cat.par = _load_params_on_demand(doc, self.crt_view, sel_cat.int_id)
+            return sel_cat.par
+        return []
+
     # ------------------------------------------------------------------
     # UNCHANGED: Original event handler — update_filter (category change)
     # ------------------------------------------------------------------
@@ -1707,7 +1892,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 return
 
             sel_cat_row = sender.SelectedItem
-            row = self._get_data_row_from_item(sel_cat_row, sender.SelectedIndex)
+            row = self._get_data_row_from_item(sel_cat_row, sender.SelectedIndex, self.table_data)
             if row is None:
                 return
             sel_cat = row["Value"]
@@ -1720,13 +1905,10 @@ class ColorSplasherProWindow(forms.WPFWindow):
             self._table_data_2.Rows.Add("Select Parameter", 0)
 
             if sel_cat != 0 and sender.SelectedIndex != 0:
-                # Load parameters on-demand if not already loaded for this category
-                if not sel_cat.par:
-                    sel_cat.par = _load_params_on_demand(
-                        revit.DOCS.doc, self.crt_view, sel_cat.int_id
-                    )
-                
-                if not sel_cat.par:
+                # Load parameters from the currently selected source.
+                params_for_source = self._load_parameters_for_current_source(sel_cat)
+
+                if not params_for_source:
                     self._table_data_2.Rows.Clear()
                     self._table_data_2.Rows.Add("No Parameters Available", 0)
                     self._list_box1.ItemsSource = self._table_data_2.DefaultView
@@ -1735,11 +1917,11 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     self._update_placeholder_visibility()
                     return
 
-                names_par = [x.name for x in sel_cat.par]
-                for key_, value_ in zip(names_par, sel_cat.par):
+                names_par = [x.name for x in params_for_source]
+                for key_, value_ in zip(names_par, params_for_source):
                     self._table_data_2.Rows.Add(key_, value_)
                 self._all_parameters = [
-                    (key_, value_) for key_, value_ in zip(names_par, sel_cat.par)
+                    (key_, value_) for key_, value_ in zip(names_par, params_for_source)
                 ]
                 self._list_box1.ItemsSource = self._table_data_2.DefaultView
                 self._list_box1.SelectedIndex = 0
@@ -1788,6 +1970,33 @@ class ColorSplasherProWindow(forms.WPFWindow):
             return
         if self._categories.SelectedIndex > 0:
             self.update_filter(self._categories, None)
+
+    def on_link_selection_changed(self, sender, e):
+        """Refresh parameters/values when the specific link selector changes."""
+        if not getattr(self, "_initialized", False):
+            return
+        if self._categories.SelectedIndex > 0:
+            self.update_filter(self._categories, None)
+
+    def button_click_refresh_links(self, sender, e):
+        """Reload Revit link instances and refresh the active category selection."""
+        self._refresh_links()
+        if getattr(self, "_initialized", False) and self._categories.SelectedIndex > 0:
+            self.update_filter(self._categories, None)
+
+    def button_click_link_info(self, sender, e):
+        """Show loaded link count and names for troubleshooting."""
+        try:
+            if not self._loaded_links:
+                UI.TaskDialog.Show("ColorSplasher Pro", "No loaded Revit links found.")
+                return
+            names = [li.link_name for li in self._loaded_links]
+            UI.TaskDialog.Show(
+                "ColorSplasher Pro",
+                "Loaded links ({0}):\n{1}".format(len(names), "\n".join(names))
+            )
+        except Exception:
+            external_event_trace()
 
     def on_scope_changed(self, sender, e):
         """Called when selection scope radio changes."""
@@ -1850,8 +2059,10 @@ class ColorSplasherProWindow(forms.WPFWindow):
             sel_cat_row = self._categories.SelectedItem
             param_names = []
             if sel_cat_row is not None:
-                row = self._get_data_row_from_item(sel_cat_row, self._categories.SelectedIndex)
-                if row is not None and row["Value"] != 0 and row["Value"].par:
+                row = self._get_category_row(sel_cat_row, self._categories.SelectedIndex)
+                if self._all_parameters:
+                    param_names = ["(none)"] + [name for name, _ in self._all_parameters]
+                elif row is not None and row["Value"] != 0 and row["Value"].par:
                     param_names = ["(none)"] + [p.name for p in row["Value"].par]
             
             if not param_names:
@@ -1995,9 +2206,15 @@ class ColorSplasherProWindow(forms.WPFWindow):
             forms.alert("No values found to colorize. Please check your category and parameter selection.", title="ColorSplasher Pro")
             return
             
-        # Choose handler based on mode
+        # Choose handler based on mode/source. Linked elements require the Pro
+        # handler because host views cannot directly override element ids from
+        # a linked document; Pro creates host-side overlay DirectShapes.
         is_standard = self._radio_standard.IsChecked
-        if is_standard:
+        uses_links = (
+            hasattr(self, "_radio_links")
+            and (self._radio_links.IsChecked or self._radio_all.IsChecked)
+        )
+        if is_standard and not uses_links:
             self.event.Raise()
         else:
             self.event_pro.Raise()
@@ -2174,9 +2391,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
     def _get_selected_cat_name(self):
         try:
-            row = self._get_data_row_from_item(
-                self._categories.SelectedItem, self._categories.SelectedIndex
-            )
+            row = self._get_category_row(self._categories.SelectedItem, self._categories.SelectedIndex)
             if row and row["Value"] != 0:
                 return row["Value"].name
         except Exception:
@@ -2185,9 +2400,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
     def _get_selected_par_name(self):
         try:
-            row = self._get_data_row_from_item(
-                self._list_box1.SelectedItem, self._list_box1.SelectedIndex
-            )
+            row = self._get_parameter_row(self._list_box1.SelectedItem, self._list_box1.SelectedIndex)
             if row and row["Value"] != 0:
                 return row["Value"].name
         except Exception:
@@ -2345,9 +2558,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             if clr_dlg.ShowDialog() == Forms.DialogResult.OK:
                 selected_item = sender.SelectedItem
                 if selected_item is not None:
-                    row = self._get_data_row_from_item(
-                        selected_item, sender.SelectedIndex
-                    )
+                    row = self._get_value_row(selected_item, sender.SelectedIndex)
                     if row is not None:
                         value_item = row["Value"]
                         value_item.n1 = clr_dlg.Color.R
@@ -2425,7 +2636,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             for i in range(self.list_box2.Items.Count):
                 try:
                     item = self.list_box2.Items[i]
-                    row = self._get_data_row_from_item(item, i)
+                    row = self._get_value_row(item, i)
                     if row is None:
                         continue
                     value_item = row["Value"]
@@ -2786,10 +2997,9 @@ def get_range_values(category, param, new_view, scope="view"):
             try:
                 params_list = ele_par.GetOrderedParameters()
             except Exception:
-                try:
-                    params_list = list(ele_par.Parameters)
-                except Exception:
-                    params_list = []
+                # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                # Revit in unmanaged code on some elements.
+                params_list = []
             for pr in params_list:
                 try:
                     if pr.Definition.Name == param.par.Name:
@@ -2843,13 +3053,15 @@ def safe_float(value):
         return float("inf")
 
 
-def collect_parameters_for_category(doc, view, category_int_id, include_links=False, loaded_links=[], include_host=True):
+def collect_parameters_for_category(doc, view, category_int_id, include_links=False, loaded_links=None, include_host=True):
     """
     Collect all unique parameters (instance & type, including project/shared/built-in)
     from all elements of the specified category in the active view (and optionally link instances).
     Returns a sorted list of ParameterInfo objects.
     """
     import System
+    if loaded_links is None:
+        loaded_links = []
     
     # 1. Find BuiltInCategory
     bic = None
@@ -2918,10 +3130,9 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
             try:
                 params_list = ele.GetOrderedParameters()
             except Exception:
-                try:
-                    params_list = list(ele.Parameters)
-                except Exception:
-                    params_list = []
+                # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                # Revit in unmanaged code on some elements.
+                params_list = []
             for par in params_list:
                 try:
                     if par.Definition.BuiltInParameter in (
@@ -2952,10 +3163,9 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
                         try:
                             params_list = typ.GetOrderedParameters()
                         except Exception:
-                            try:
-                                params_list = list(typ.Parameters)
-                            except Exception:
-                                params_list = []
+                            # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                            # Revit in unmanaged code on some elements.
+                            params_list = []
                         for par in params_list:
                             try:
                                 if par.Definition.BuiltInParameter in (
@@ -2996,10 +3206,9 @@ def _load_params_for_element(ele, doc_param):
         try:
             params_list = ele.GetOrderedParameters()
         except Exception:
-            try:
-                params_list = list(ele.Parameters)
-            except Exception:
-                params_list = []
+            # Do not fall back to .Parameters; pyRevit/IronPython can crash
+            # Revit in unmanaged code on some elements.
+            params_list = []
         for par in params_list:
             try:
                 name = strip_accents(par.Definition.Name)
@@ -3023,10 +3232,9 @@ def _load_params_for_element(ele, doc_param):
                     try:
                         params_list = typ.GetOrderedParameters()
                     except Exception:
-                        try:
-                            params_list = list(typ.Parameters)
-                        except Exception:
-                            params_list = []
+                        # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                        # Revit in unmanaged code on some elements.
+                        params_list = []
                     for par in params_list:
                         try:
                             name = strip_accents(par.Definition.Name)
