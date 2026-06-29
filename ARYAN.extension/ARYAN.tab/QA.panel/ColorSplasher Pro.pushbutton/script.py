@@ -64,6 +64,7 @@ try:
         export_to_json,
         ValuesInfoPro,
         get_revit_version,
+        get_element_int_id,
     )
     _PRO_ENGINE_OK = True
 except Exception as _pro_import_err:
@@ -362,6 +363,27 @@ class ResetColors(UI.IExternalEventHandler):
                     external_event_trace()
                 for i in collector:
                     view.SetElementOverrides(i, ogs)
+
+                # Delete temporary DirectShapes (Fix link element coloring reset)
+                if wndw and hasattr(wndw, '_temp_direct_shapes') and wndw._temp_direct_shapes:
+                    for ds_id in wndw._temp_direct_shapes:
+                        try:
+                            new_doc.Delete(ds_id)
+                        except Exception:
+                            pass
+                    wndw._temp_direct_shapes = []
+
+                # Also double check if there are any orphaned temp DirectShapes in doc
+                try:
+                    ds_collector = DB.FilteredElementCollector(new_doc).OfClass(DB.DirectShape).ToElements()
+                    for ds in ds_collector:
+                        if ds.Name == "ColorSplasherPro_Temp":
+                            try:
+                                new_doc.Delete(ds.Id)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
         except Exception:
             external_event_trace()
 
@@ -895,7 +917,40 @@ class ApplyColorsPro(UI.IExternalEventHandler):
             if not all_values:
                 return
 
+            # Get selected category
+            sel_cat_row = wndw._categories.SelectedItem
+            if sel_cat_row is None:
+                return
+            cat_row = wndw._get_data_row_from_item(sel_cat_row, wndw._categories.SelectedIndex)
+            if cat_row is None:
+                return
+            sel_cat = cat_row["Value"]
+            if sel_cat == 0:
+                return
+
+            if not hasattr(wndw, '_temp_direct_shapes'):
+                wndw._temp_direct_shapes = []
+
             with revit.Transaction("Apply colors to elements (Pro)"):
+                # 1. Delete previous temporary DirectShapes
+                existing_temp_ids = []
+                if wndw._temp_direct_shapes:
+                    for ds_id in wndw._temp_direct_shapes:
+                        if new_doc.GetElement(ds_id):
+                            existing_temp_ids.append(ds_id)
+                if existing_temp_ids:
+                    from System.Collections.Generic import List as WpfList
+                    try:
+                        new_doc.Delete(WpfList[DB.ElementId](existing_temp_ids))
+                    except Exception:
+                        for eid in existing_temp_ids:
+                            try:
+                                new_doc.Delete(eid)
+                            except Exception:
+                                pass
+                wndw._temp_direct_shapes = []
+
+                # 2. Iterate and apply overrides
                 for vi in all_values:
                     if vi.value not in color_map:
                         continue
@@ -920,11 +975,53 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                         if solid_fill_id is not None:
                             ogs.SetSurfaceBackgroundPatternId(solid_fill_id)
                             ogs.SetCutBackgroundPatternId(solid_fill_id)
+                            
                     for idt in vi.ele_id:
-                        try:
-                            view.SetElementOverrides(idt, ogs)
-                        except Exception:
-                            pass
+                        idt_int = get_element_int_id(idt)
+                        registry = getattr(wndw, '_link_elements_registry', {})
+                        
+                        if idt_int in registry:
+                            link_inst, link_doc = registry[idt_int]
+                            try:
+                                linked_element = link_doc.GetElement(idt)
+                                if linked_element:
+                                    # Create DirectShape in host to represent link element
+                                    options = DB.Options()
+                                    options.View = view
+                                    geom_elem = linked_element.get_Geometry(options)
+                                    
+                                    if geom_elem:
+                                        link_transform = link_inst.GetTotalTransform()
+                                        transformed_geometry = []
+                                        
+                                        for geom_obj in geom_elem:
+                                            if isinstance(geom_obj, DB.GeometryInstance):
+                                                inst_geom = geom_obj.GetInstanceGeometry()
+                                                for obj in inst_geom:
+                                                    if isinstance(obj, DB.Solid) and obj.Volume > 0:
+                                                        transformed_solid = DB.SolidUtils.CreateTransformed(obj, link_transform)
+                                                        transformed_geometry.append(transformed_solid)
+                                            elif isinstance(geom_obj, DB.Solid) and geom_obj.Volume > 0:
+                                                transformed_solid = DB.SolidUtils.CreateTransformed(geom_obj, link_transform)
+                                                transformed_geometry.append(transformed_solid)
+                                                
+                                        if transformed_geometry:
+                                            from System.Collections.Generic import List as WpfList
+                                            ds = DB.DirectShape.CreateElement(new_doc, DB.ElementId(sel_cat.int_id))
+                                            ds.Name = "ColorSplasherPro_Temp"
+                                            ds.SetShape(WpfList[DB.GeometryObject](transformed_geometry))
+                                            
+                                            # Apply graphic overrides to DirectShape
+                                            view.SetElementOverrides(ds.Id, ogs)
+                                            wndw._temp_direct_shapes.append(ds.Id)
+                            except Exception as ds_ex:
+                                logger.debug("Failed to override linked element DirectShape: %s", str(ds_ex))
+                        else:
+                            # Host element
+                            try:
+                                view.SetElementOverrides(idt, ogs)
+                            except Exception:
+                                pass
 
             wndw._set_status("Colors applied", success=True)
         except Exception:
@@ -1388,6 +1485,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
             # Determine link elements to include
             link_elements = []
+            self._link_elements_registry = {}
             if _PRO_ENGINE_OK:
                 try:
                     include_links = self._radio_links.IsChecked or self._radio_all.IsChecked
@@ -1406,8 +1504,12 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
                         for li in links_to_use:
                             elems = collect_elements_from_link(li, sel_cat.int_id, view)
+                            for (ele, _) in elems:
+                                ele_id_int = get_element_int_id(ele.Id)
+                                self._link_elements_registry[ele_id_int] = (li.link_instance, li.link_doc)
                             link_elements.extend(elems)
-                except Exception:
+                except Exception as ex:
+                    logger.debug("Failed to populate link elements registry: %s", str(ex))
                     link_elements = []
 
             # Determine mode
