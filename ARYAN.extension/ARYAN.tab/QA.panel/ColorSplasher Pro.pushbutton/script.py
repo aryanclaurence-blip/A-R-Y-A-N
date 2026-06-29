@@ -1687,60 +1687,67 @@ class ColorSplasherProWindow(forms.WPFWindow):
         """Update parameter list when category selection changes."""
         if not getattr(self, "_initialized", False):
             return
-        if sender.SelectedItem is None:
-            return
+        try:
+            if sender.SelectedItem is None:
+                return
 
-        sel_cat_row = sender.SelectedItem
-        row = self._get_data_row_from_item(sel_cat_row, sender.SelectedIndex)
-        if row is None:
-            return
-        sel_cat = row["Value"]
+            sel_cat_row = sender.SelectedItem
+            row = self._get_data_row_from_item(sel_cat_row, sender.SelectedIndex)
+            if row is None:
+                return
+            sel_cat = row["Value"]
 
-        self._table_data_2 = DataTable("Data")
-        self._table_data_2.Columns.Add("Key", System.String)
-        self._table_data_2.Columns.Add("Value", System.Object)
-        self._table_data_3 = self._create_empty_table()
+            self._table_data_2 = DataTable("Data")
+            self._table_data_2.Columns.Add("Key", System.String)
+            self._table_data_2.Columns.Add("Value", System.Object)
+            self._table_data_3 = self._create_empty_table()
 
-        self._table_data_2.Rows.Add("Select Parameter", 0)
+            self._table_data_2.Rows.Add("Select Parameter", 0)
 
-        if sel_cat != 0 and sender.SelectedIndex != 0:
-            doc = revit.DOCS.doc
-            view = self.crt_view
-            include_links = self._radio_links.IsChecked or self._radio_all.IsChecked
-            sel_cat.par = collect_parameters_for_category(
-                doc, view, sel_cat.int_id, 
-                include_links=include_links, 
-                loaded_links=self._loaded_links
-            )
-            
-            if not sel_cat.par:
-                self._table_data_2.Rows.Clear()
-                self._table_data_2.Rows.Add("No Parameters Available", 0)
+            if sel_cat != 0 and sender.SelectedIndex != 0:
+                doc = revit.DOCS.doc
+                view = self.crt_view
+                include_links = self._radio_links.IsChecked or self._radio_all.IsChecked
+                sel_cat.par = collect_parameters_for_category(
+                    doc, view, sel_cat.int_id, 
+                    include_links=include_links, 
+                    loaded_links=self._loaded_links
+                )
+                
+                if not sel_cat.par:
+                    self._table_data_2.Rows.Clear()
+                    self._table_data_2.Rows.Add("No Parameters Available", 0)
+                    self._list_box1.ItemsSource = self._table_data_2.DefaultView
+                    self._list_box1.SelectedIndex = 0
+                    self.list_box2.ItemsSource = self._table_data_3.DefaultView
+                    self._update_placeholder_visibility()
+                    return
+
+                names_par = [x.name for x in sel_cat.par]
+                for key_, value_ in zip(names_par, sel_cat.par):
+                    self._table_data_2.Rows.Add(key_, value_)
+                self._all_parameters = [
+                    (key_, value_) for key_, value_ in zip(names_par, sel_cat.par)
+                ]
                 self._list_box1.ItemsSource = self._table_data_2.DefaultView
                 self._list_box1.SelectedIndex = 0
                 self.list_box2.ItemsSource = self._table_data_3.DefaultView
                 self._update_placeholder_visibility()
-                return
+                self._refresh_secondary_tertiary()
+            else:
+                self._all_parameters = []
+                self._list_box1.ItemsSource = self._table_data_2.DefaultView
+                self._list_box1.SelectedIndex = 0
+                self.list_box2.ItemsSource = self._table_data_3.DefaultView
+                self._update_placeholder_visibility()
 
-            names_par = [x.name for x in sel_cat.par]
-            for key_, value_ in zip(names_par, sel_cat.par):
-                self._table_data_2.Rows.Add(key_, value_)
-            self._all_parameters = [
-                (key_, value_) for key_, value_ in zip(names_par, sel_cat.par)
-            ]
-            self._list_box1.ItemsSource = self._table_data_2.DefaultView
-            self._list_box1.SelectedIndex = 0
-            self.list_box2.ItemsSource = self._table_data_3.DefaultView
-            self._update_placeholder_visibility()
-            self._refresh_secondary_tertiary()
-        else:
-            self._all_parameters = []
-            self._list_box1.ItemsSource = self._table_data_2.DefaultView
-            self._list_box1.SelectedIndex = 0
-            self.list_box2.ItemsSource = self._table_data_3.DefaultView
-            self._update_placeholder_visibility()
-
-        self._all_value_items_raw = []
+            self._all_value_items_raw = []
+        except Exception as ex:
+            logger.debug("Error in update_filter: %s", str(ex))
+            try:
+                self._set_status("Error loading parameters: {}".format(str(ex)), success=False)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # NEW: Mode changed handler
