@@ -2783,7 +2783,14 @@ def get_range_values(category, param, new_view, scope="view"):
                     continue
             else:
                 ele_par = ele
-            for pr in ele_par.Parameters:
+            try:
+                params_list = ele_par.GetOrderedParameters()
+            except Exception:
+                try:
+                    params_list = list(ele_par.Parameters)
+                except Exception:
+                    params_list = []
+            for pr in params_list:
                 try:
                     if pr.Definition.Name == param.par.Name:
                         value = get_parameter_value(pr) or "None"
@@ -2906,17 +2913,27 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
         try:
             if ele is None or not ele.IsValidObject:
                 continue
-            for par in ele.Parameters:
-                if par.Definition.BuiltInParameter in (
-                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
-                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
-                ):
+            try:
+                params_list = ele.GetOrderedParameters()
+            except Exception:
+                try:
+                    params_list = list(ele.Parameters)
+                except Exception:
+                    params_list = []
+            for par in params_list:
+                try:
+                    if par.Definition.BuiltInParameter in (
+                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                    ):
+                        continue
+                    name = strip_accents(par.Definition.Name)
+                    if not name or name.strip() == "":
+                        continue
+                    if name not in unique_params:
+                        unique_params[name] = ParameterInfo(0, par)
+                except Exception:
                     continue
-                name = strip_accents(par.Definition.Name)
-                if not name or name.strip() == "":
-                    continue
-                if name not in unique_params:
-                    unique_params[name] = ParameterInfo(0, par)
         except Exception:
             pass
             
@@ -2930,17 +2947,27 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
                 if type_id and type_id != DB.ElementId.InvalidElementId:
                     typ = ele_doc.GetElement(type_id)
                     if typ and typ.IsValidObject:
-                        for par in typ.Parameters:
-                            if par.Definition.BuiltInParameter in (
-                                DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
-                                DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
-                            ):
+                        try:
+                            params_list = typ.GetOrderedParameters()
+                        except Exception:
+                            try:
+                                params_list = list(typ.Parameters)
+                            except Exception:
+                                params_list = []
+                        for par in params_list:
+                            try:
+                                if par.Definition.BuiltInParameter in (
+                                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                                ):
+                                    continue
+                                name = strip_accents(par.Definition.Name)
+                                if not name or name.strip() == "":
+                                    continue
+                                if name not in unique_params:
+                                    unique_params[name] = ParameterInfo(1, par)
+                            except Exception:
                                 continue
-                            name = strip_accents(par.Definition.Name)
-                            if not name or name.strip() == "":
-                                continue
-                            if name not in unique_params:
-                                unique_params[name] = ParameterInfo(1, par)
         except Exception:
             pass
             
@@ -2964,7 +2991,14 @@ def _load_params_for_element(ele, doc_param):
         if ele is None or not ele.IsValidObject:
             return []
         # Instance parameters
-        for par in ele.Parameters:
+        try:
+            params_list = ele.GetOrderedParameters()
+        except Exception:
+            try:
+                params_list = list(ele.Parameters)
+            except Exception:
+                params_list = []
+        for par in params_list:
             try:
                 name = strip_accents(par.Definition.Name)
                 if not name or not name.strip():
@@ -2984,7 +3018,14 @@ def _load_params_for_element(ele, doc_param):
             if type_id and type_id != DB.ElementId.InvalidElementId:
                 typ = doc_param.GetElement(type_id)
                 if typ and typ.IsValidObject:
-                    for par in typ.Parameters:
+                    try:
+                        params_list = typ.GetOrderedParameters()
+                    except Exception:
+                        try:
+                            params_list = list(typ.Parameters)
+                        except Exception:
+                            params_list = []
+                    for par in params_list:
                         try:
                             name = strip_accents(par.Definition.Name)
                             if not name or not name.strip():
