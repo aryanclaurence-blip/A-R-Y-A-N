@@ -170,6 +170,45 @@
             </Setter>
         </Style>
 
+        <Style x:Key="ScopeRadioButton" TargetType="RadioButton">
+            <Setter Property="GroupName" Value="SelectionScope"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="border" Background="#F8FAFC" BorderBrush="{StaticResource BorderLight}" BorderThickness="1" CornerRadius="6" Padding="12,6" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock x:Name="icon" FontFamily="Segoe MDL2 Assets" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="title" Text="{TemplateBinding Content}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextDark}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Content" Value="Whole Model">
+                                <Setter TargetName="icon" Property="Text" Value="&#xE774;"/>
+                                <Setter TargetName="icon" Property="Foreground" Value="#64748B"/>
+                            </Trigger>
+                            <Trigger Property="Content" Value="Current View">
+                                <Setter TargetName="icon" Property="Text" Value="&#xE7B3;"/>
+                                <Setter TargetName="icon" Property="Foreground" Value="#64748B"/>
+                            </Trigger>
+                            <Trigger Property="Content" Value="Selected Elements">
+                                <Setter TargetName="icon" Property="Text" Value="&#xE8B0;"/>
+                                <Setter TargetName="icon" Property="Foreground" Value="#64748B"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#2563EB"/>
+                                <Setter TargetName="border" Property="Background" Value="#EFF6FF"/>
+                                <Setter TargetName="title" Property="Foreground" Value="#2563EB"/>
+                                <Setter TargetName="icon" Property="Foreground" Value="#2563EB"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#F1F5F9"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Checkbox Tile Border Style -->
         <Style x:Key="CheckTile" TargetType="Border">
             <Setter Property="Background" Value="White"/>
@@ -449,6 +488,7 @@
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Selection Scope Bar -->
             <RowDefinition Height="Auto"/> <!-- Top row -->
             <RowDefinition Height="Auto"/> <!-- Second row -->
             <RowDefinition Height="*"/>    <!-- Third row (main table + right columns) -->
@@ -456,8 +496,27 @@
             <RowDefinition Height="Auto"/> <!-- Status Bar -->
         </Grid.RowDefinitions>
 
+        <!-- ════════════════════════ SELECTION SCOPE ROW ════════════════════════ -->
+        <Border Grid.Row="0" Style="{StaticResource BentoCard}" Margin="0,0,0,12" Padding="14,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="&#xE8B0;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#64748B" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="SELECTION SCOPE" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <RadioButton x:Name="_radio_scope_whole" Style="{StaticResource ScopeRadioButton}" Content="Whole Model" Checked="on_scope_changed"/>
+                    <RadioButton x:Name="_radio_scope_view" Style="{StaticResource ScopeRadioButton}" Content="Current View" IsChecked="True" Checked="on_scope_changed"/>
+                    <RadioButton x:Name="_radio_scope_selected" Style="{StaticResource ScopeRadioButton}" Content="Selected Elements" Checked="on_scope_changed"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <!-- ════════════════════════ TOP ROW ════════════════════════ -->
-        <Grid Grid.Row="0" Margin="0,0,0,16">
+        <Grid Grid.Row="1" Margin="0,0,0,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2.5*"/>
                 <ColumnDefinition Width="2.5*"/>
@@ -528,7 +587,7 @@
         </Grid>
 
         <!-- ════════════════════════ SECOND ROW ════════════════════════ -->
-        <Grid Grid.Row="1" Margin="0,0,0,16">
+        <Grid Grid.Row="2" Margin="0,0,0,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="3.8*"/>
                 <ColumnDefinition Width="3.8*"/>
@@ -698,7 +757,7 @@
         </Grid>
 
         <!-- ════════════════════════ THIRD ROW ════════════════════════ -->
-        <Grid Grid.Row="2" Margin="0,0,0,16">
+        <Grid Grid.Row="3" Margin="0,0,0,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5.8*"/>
                 <ColumnDefinition Width="4.2*"/>
@@ -933,7 +992,7 @@
         </Grid>
 
         <!-- ════════════════════════ BOTTOM TOOLBAR ════════════════════════ -->
-        <Grid Grid.Row="3" Margin="0,0,0,12">
+        <Grid Grid.Row="4" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -990,7 +1049,7 @@
         </Grid>
 
         <!-- ════════════════════════ STATUS BAR ════════════════════════ -->
-        <Grid Grid.Row="4" Margin="0,4,0,0">
+        <Grid Grid.Row="5" Margin="0,4,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>

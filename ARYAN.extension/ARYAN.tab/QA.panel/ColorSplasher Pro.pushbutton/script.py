@@ -1294,6 +1294,14 @@ class ColorSplasherProWindow(forms.WPFWindow):
         except Exception:
             pass
 
+        # Unregister event handler directly on the UI thread to prevent reload crash
+        try:
+            uiapp = HOST_APP.uiapp
+            if hasattr(self, '_event_handler_uns') and self._event_handler_uns:
+                uiapp.ViewActivated -= self._event_handler_uns.view_changed
+        except Exception:
+            pass
+
         # Cleanup static references to prevent reload crashes
         try:
             SubscribeView._wndw = None
@@ -1549,8 +1557,15 @@ class ColorSplasherProWindow(forms.WPFWindow):
             # Host-only vs host+links
             use_links = bool(link_elements)
 
-            # Determine if host elements should be collected
-            include_host = not self._radio_links.IsChecked
+            # Determine selection scope
+            scope = "view"
+            if hasattr(self, "_radio_scope_whole") and self._radio_scope_whole.IsChecked:
+                scope = "whole"
+            elif hasattr(self, "_radio_scope_selected") and self._radio_scope_selected.IsChecked:
+                scope = "selected"
+
+            if self._radio_links.IsChecked:
+                scope = "none"
 
             if is_heatmap and _PRO_ENGINE_OK:
                 # Heat map mode
@@ -1569,7 +1584,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     sel_cat, sel_param, view, doc,
                     num_bands=num_bands,
                     link_elements=link_elements if use_links else None,
-                    include_host=include_host
+                    scope=scope
                 )
                 if errors and not value_items:
                     self._set_status("Heat map: no numeric values", success=False)
@@ -1590,21 +1605,21 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     additional_names,
                     view, doc,
                     link_elements=link_elements if use_links else None,
-                    include_host=include_host
+                    scope=scope
                 )
                 self._all_value_items_raw = value_items
 
             else:
                 # Standard mode: use original get_range_values, then append link values
                 value_items = []
-                if include_host:
-                    value_items = get_range_values(sel_cat, sel_param, view)
+                if scope != "none":
+                    value_items = get_range_values(sel_cat, sel_param, view, scope=scope)
                 # If links requested, run multi-param to include them
                 if use_links and _PRO_ENGINE_OK:
                     value_items_links = get_range_values_multi(
                         sel_cat, sel_param, [], view, doc,
                         link_elements=link_elements,
-                        include_host=False
+                        scope="none"
                     )
                     # Merge: keep host values, add link-only values
                     existing_values = set(vi.value for vi in value_items)
@@ -1707,6 +1722,10 @@ class ColorSplasherProWindow(forms.WPFWindow):
             if sel_cat != 0 and sender.SelectedIndex != 0:
                 doc = revit.DOCS.doc
                 view = self.crt_view
+                try:
+                    self._loaded_links = get_loaded_links(doc)
+                except Exception:
+                    pass
                 include_links = self._radio_links.IsChecked or self._radio_all.IsChecked
                 sel_cat.par = collect_parameters_for_category(
                     doc, view, sel_cat.int_id, 
@@ -1776,6 +1795,13 @@ class ColorSplasherProWindow(forms.WPFWindow):
             return
         if self._categories.SelectedIndex > 0:
             self.update_filter(self._categories, None)
+
+    def on_scope_changed(self, sender, e):
+        """Called when selection scope radio changes."""
+        if not getattr(self, "_initialized", False):
+            return
+        if self._categories.SelectedIndex > 0 and self._list_box1.SelectedIndex > 0:
+            self._collect_value_items()
 
     # ------------------------------------------------------------------
     # NEW: Secondary / Tertiary Parameter Selection handler
@@ -2699,20 +2725,48 @@ def random_color():
     return r, g, b
 
 
-def get_range_values(category, param, new_view):
+def get_range_values(category, param, new_view, scope="view"):
     doc_param = new_view.Document
     bic = None
     for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
         if category.int_id == int(sample_bic):
             bic = sample_bic
             break
-    collector = (
-        DB.FilteredElementCollector(doc_param, new_view.Id)
-        .OfCategory(bic)
-        .WhereElementIsNotElementType()
-        .WhereElementIsViewIndependent()
-        .ToElements()
-    )
+
+    if scope == "selected":
+        try:
+            uidoc = HOST_APP.uidoc
+            selected_ids = uidoc.Selection.GetElementIds()
+            collector = []
+            for eid in selected_ids:
+                ele = doc_param.GetElement(eid)
+                if ele and ele.Category and get_element_int_id(ele.Category.Id) == category.int_id:
+                    if not isinstance(ele, DB.ElementType):
+                        collector.append(ele)
+        except Exception:
+            collector = []
+    elif scope == "whole":
+        try:
+            collector = (
+                DB.FilteredElementCollector(doc_param)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .ToElements()
+            )
+        except Exception:
+            collector = []
+    else:
+        # Default: current view
+        try:
+            collector = (
+                DB.FilteredElementCollector(doc_param, new_view.Id)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .WhereElementIsViewIndependent()
+                .ToElements()
+            )
+        except Exception:
+            collector = []
     list_values = []
     used_colors = set()
     for ele in collector:
@@ -2801,7 +2855,7 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
         for li in loaded_links:
             try:
                 link_doc = li.link_doc
-                if link_doc:
+                if link_doc and link_doc.IsValidObject:
                     link_collector = (
                         DB.FilteredElementCollector(link_doc)
                         .OfCategory(bic)
@@ -3022,6 +3076,7 @@ def launch_color_splasher_pro():
             ext_event_legend,
             ext_event_pro
         ]
+        wndw._event_handler_uns = event_handler_uns
 
         # Wire class-level references (same pattern as original)
         SubscribeView._wndw = wndw
