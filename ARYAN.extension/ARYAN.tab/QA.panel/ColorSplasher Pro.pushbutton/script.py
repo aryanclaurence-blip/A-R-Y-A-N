@@ -2829,28 +2829,36 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
     
     # 1. Find BuiltInCategory
     bic = None
-    for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
-        if category_int_id == int(sample_bic):
-            bic = sample_bic
-            break
+    try:
+        for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
+            if category_int_id == int(sample_bic):
+                bic = sample_bic
+                break
+    except Exception:
+        pass
             
     if bic is None:
         return []
         
-    # 2. Collect host elements
+    # 2. Collect host elements (limit to 50 for speed and safety)
     elements = []
     try:
         collector = (
             DB.FilteredElementCollector(doc, view.Id)
             .OfCategory(bic)
             .WhereElementIsNotElementType()
-            .ToElements()
         )
-        elements.extend(collector)
+        count = 0
+        for ele in collector:
+            if ele and ele.IsValidObject:
+                elements.append(ele)
+                count += 1
+                if count >= 50:
+                    break
     except Exception:
         pass
         
-    # 3. Collect link elements if requested
+    # 3. Collect link elements if requested (limit to 50 per link for speed and safety)
     if include_links:
         for li in loaded_links:
             try:
@@ -2860,9 +2868,14 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
                         DB.FilteredElementCollector(link_doc)
                         .OfCategory(bic)
                         .WhereElementIsNotElementType()
-                        .ToElements()
                     )
-                    elements.extend(link_collector)
+                    count = 0
+                    for ele in link_collector:
+                        if ele and ele.IsValidObject:
+                            elements.append(ele)
+                            count += 1
+                            if count >= 50:
+                                break
             except Exception:
                 pass
                 
@@ -2872,6 +2885,8 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
     for ele in elements:
         # Instance parameters
         try:
+            if ele is None or not ele.IsValidObject:
+                continue
             for par in ele.Parameters:
                 if par.Definition.BuiltInParameter in (
                     DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
@@ -2888,28 +2903,35 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
             
         # Type parameters
         try:
+            if ele is None or not ele.IsValidObject:
+                continue
             ele_doc = ele.Document
-            typ = ele_doc.GetElement(ele.GetTypeId())
-            if typ:
-                for par in typ.Parameters:
-                    if par.Definition.BuiltInParameter in (
-                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
-                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
-                    ):
-                        continue
-                    name = strip_accents(par.Definition.Name)
-                    if not name or name.strip() == "":
-                        continue
-                    if name not in unique_params:
-                        unique_params[name] = ParameterInfo(1, par)
+            if ele_doc and ele_doc.IsValidObject:
+                type_id = ele.GetTypeId()
+                if type_id and type_id != DB.ElementId.InvalidElementId:
+                    typ = ele_doc.GetElement(type_id)
+                    if typ and typ.IsValidObject:
+                        for par in typ.Parameters:
+                            if par.Definition.BuiltInParameter in (
+                                DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                                DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                            ):
+                                continue
+                            name = strip_accents(par.Definition.Name)
+                            if not name or name.strip() == "":
+                                continue
+                            if name not in unique_params:
+                                unique_params[name] = ParameterInfo(1, par)
         except Exception:
             pass
             
     # Sort alphabetically by name
-    sorted_keys = sorted(unique_params.keys(), key=lambda x: x.upper())
-    result = [unique_params[k] for k in sorted_keys]
-    
-    return result
+    try:
+        sorted_keys = sorted(unique_params.keys(), key=lambda x: x.upper())
+        result = [unique_params[k] for k in sorted_keys]
+        return result
+    except Exception:
+        return []
 
 
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
