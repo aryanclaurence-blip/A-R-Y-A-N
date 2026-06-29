@@ -596,7 +596,7 @@ def get_range_values_multi(
     view,
     doc,
     link_elements=None,
-    include_host=True
+    scope="view"
 ):
     """
     Build a value list with compound keys from any number of parameters.
@@ -604,6 +604,7 @@ def get_range_values_multi(
     """
     try:
         from pyrevit import DB as _DB
+        from pyrevit import HOST_APP
         import System
         from pyrevit.framework import List
     except Exception:
@@ -622,15 +623,38 @@ def get_range_values_multi(
         return []
 
     host_elements = []
-    if include_host:
+    if scope != "none":
         try:
-            collector = (
-                _DB.FilteredElementCollector(doc, view.Id)
-                .OfCategory(bic)
-                .WhereElementIsNotElementType()
-                .WhereElementIsViewIndependent()
-                .ToElements()
-            )
+            if scope == "selected":
+                uidoc = HOST_APP.uidoc
+                selected_ids = uidoc.Selection.GetElementIds()
+                collector = []
+                for eid in selected_ids:
+                    try:
+                        ele = doc.GetElement(eid)
+                        if ele and ele.IsValidObject and ele.Category:
+                            # Use helper function or manual int id retrieval
+                            # Let's import get_element_int_id from script_pro_engine
+                            if int(ele.Category.Id.IntegerValue) == category_info.int_id:
+                                if not isinstance(ele, _DB.ElementType):
+                                    collector.append(ele)
+                    except Exception:
+                        continue
+            elif scope == "whole":
+                collector = (
+                    _DB.FilteredElementCollector(doc)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                    .ToElements()
+                )
+            else:
+                # Default: current view
+                collector = (
+                    _DB.FilteredElementCollector(doc, view.Id)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                    .ToElements()
+                )
             host_elements = [(ele, None) for ele in collector]
         except Exception:
             host_elements = []
@@ -802,7 +826,7 @@ def get_range_values_heatmap(
     num_bands=5,
     custom_ranges=None,
     link_elements=None,
-    include_host=True
+    scope="view"
 ):
     """
     Build a value list for heat map mode.
@@ -814,6 +838,7 @@ def get_range_values_heatmap(
     """
     try:
         from pyrevit import DB as _DB
+        from pyrevit import HOST_APP
         import System
     except Exception:
         return [], [], ['Could not import Revit API']
@@ -832,15 +857,36 @@ def get_range_values_heatmap(
         return [], [], ['Category BuiltInCategory not found']
 
     host_elements = []
-    if include_host:
+    if scope != "none":
         try:
-            collector = (
-                _DB.FilteredElementCollector(doc, view.Id)
-                .OfCategory(bic)
-                .WhereElementIsNotElementType()
-                .WhereElementIsViewIndependent()
-                .ToElements()
-            )
+            if scope == "selected":
+                uidoc = HOST_APP.uidoc
+                selected_ids = uidoc.Selection.GetElementIds()
+                collector = []
+                for eid in selected_ids:
+                    try:
+                        ele = doc.GetElement(eid)
+                        if ele and ele.IsValidObject and ele.Category:
+                            if int(ele.Category.Id.IntegerValue) == category_info.int_id:
+                                if not isinstance(ele, _DB.ElementType):
+                                    collector.append(ele)
+                    except Exception:
+                        continue
+            elif scope == "whole":
+                collector = (
+                    _DB.FilteredElementCollector(doc)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                    .ToElements()
+                )
+            else:
+                # Default: current view
+                collector = (
+                    _DB.FilteredElementCollector(doc, view.Id)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                    .ToElements()
+                )
             host_elements = [(ele, None) for ele in collector]
         except Exception:
             host_elements = []

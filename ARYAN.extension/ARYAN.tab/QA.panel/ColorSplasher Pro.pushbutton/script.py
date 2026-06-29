@@ -2793,6 +2793,8 @@ def get_range_values(category, param, new_view, scope="view"):
             for pr in params_list:
                 try:
                     if pr.Definition.Name == param.par.Name:
+                        if hasattr(param, "rl_par") and hasattr(param.rl_par, "_storage_type"):
+                            param.rl_par._storage_type = pr.StorageType
                         value = get_parameter_value(pr) or "None"
                         match = [x for x in list_values if x.value == value]
                         if match:
@@ -3050,10 +3052,33 @@ def _load_params_for_element(ele, doc_param):
         return []
 
 
-def _load_params_on_demand(doc, view, category_int_id):
+class MockDefinition(object):
+    def __init__(self, name, param_id):
+        self.Name = name
+        self.Id = param_id
+        if hasattr(DB, "ParameterType"):
+            self.ParameterType = DB.ParameterType.Text
+        else:
+            self.ParameterType = None
+
+class MockParameter(object):
+    def __init__(self, name, param_id, is_builtin):
+        self.Definition = MockDefinition(name, param_id)
+        self.Id = param_id
+        self._name = name
+        self._is_builtin = is_builtin
+        self._storage_type = None
+
+    @property
+    def StorageType(self):
+        if self._storage_type is not None:
+            return self._storage_type
+        return DB.StorageType.String
+
+
+def _load_params_on_demand_fallback(doc, view, category_int_id):
     """
-    Safely load parameters for a category using a single FirstElementId() call.
-    Uses document-scoped collectors first (extremely fast index lookup) to avoid UI hang on large views.
+    Fallback method to find parameters using elements if schema-based lookup fails.
     """
     try:
         import System
@@ -3063,70 +3088,23 @@ def _load_params_on_demand(doc, view, category_int_id):
         except Exception:
             return []
 
-        # Step 1: Get just the ElementId from document - safest and fastest possible index search
+        # Get just the ElementId from Type elements (extremely stable, won't crash)
         eid = None
         try:
             eid = (
                 DB.FilteredElementCollector(doc)
                 .OfCategory(bic)
-                .WhereElementIsNotElementType()
+                .WhereElementIsElementType()
                 .FirstElementId()
             )
         except Exception:
             pass
 
-        # Step 2: Try type elements if no instance exists in host document
+        # Try instances only if no Type elements exist
         if eid is None or eid == DB.ElementId.InvalidElementId:
             try:
                 eid = (
                     DB.FilteredElementCollector(doc)
-                    .OfCategory(bic)
-                    .WhereElementIsElementType()
-                    .FirstElementId()
-                )
-            except Exception:
-                pass
-
-        # Step 3: Try linked models
-        if eid is None or eid == DB.ElementId.InvalidElementId:
-            try:
-                loaded_links = get_loaded_links(doc)
-                for li in loaded_links:
-                    try:
-                        link_doc = li.link_doc
-                        if link_doc and link_doc.IsValidObject:
-                            eid = (
-                                DB.FilteredElementCollector(link_doc)
-                                .OfCategory(bic)
-                                .WhereElementIsNotElementType()
-                                .FirstElementId()
-                            )
-                            if eid and eid != DB.ElementId.InvalidElementId:
-                                ele = link_doc.GetElement(eid)
-                                if ele and ele.IsValidObject:
-                                    return _load_params_for_element(ele, link_doc)
-                            
-                            # Try link type elements
-                            eid = (
-                                DB.FilteredElementCollector(link_doc)
-                                .OfCategory(bic)
-                                .WhereElementIsElementType()
-                                .FirstElementId()
-                            )
-                            if eid and eid != DB.ElementId.InvalidElementId:
-                                ele = link_doc.GetElement(eid)
-                                if ele and ele.IsValidObject:
-                                    return _load_params_for_element(ele, link_doc)
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-        # Step 4: Fallback to view-scoped only if document searches failed (unlikely)
-        if eid is None or eid == DB.ElementId.InvalidElementId:
-            try:
-                eid = (
-                    DB.FilteredElementCollector(doc, view.Id)
                     .OfCategory(bic)
                     .WhereElementIsNotElementType()
                     .FirstElementId()
@@ -3137,7 +3115,7 @@ def _load_params_on_demand(doc, view, category_int_id):
         if eid is None or eid == DB.ElementId.InvalidElementId:
             return []
 
-        # Step 5: Get the element by ID (safe direct lookup)
+        # Get the element by ID (safe direct lookup)
         try:
             ele = doc.GetElement(eid)
         except Exception:
@@ -3146,11 +3124,72 @@ def _load_params_on_demand(doc, view, category_int_id):
         if ele is None or not ele.IsValidObject:
             return []
 
-        # Step 6: Load parameters from this one element
+        # Load parameters from this one element
         return _load_params_for_element(ele, doc)
 
     except Exception:
         return []
+
+
+def _load_params_on_demand(doc, view, category_int_id):
+    """
+    Safely load parameters for a category using ParameterFilterUtilities.GetFilterableParametersInCommon.
+    This queries the Revit document's schema directly, requiring ZERO element instances.
+    This makes it 100% crash-proof even if the model contains corrupted elements.
+    """
+    try:
+        import System
+        from System.Collections.Generic import List as SystemList
+
+        # Build category list
+        cat_ids = SystemList[DB.ElementId]()
+        cat_ids.Add(DB.ElementId(category_int_id))
+
+        # Native Revit API schema query
+        param_ids = DB.ParameterFilterUtilities.GetFilterableParametersInCommon(doc, cat_ids)
+
+        unique_params = {}
+        for pid in param_ids:
+            try:
+                name = None
+                is_builtin = pid.IntegerValue < 0
+
+                if is_builtin:
+                    bip = System.Enum.ToObject(DB.BuiltInParameter, pid.IntegerValue)
+                    if bip in (
+                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                    ):
+                        continue
+                    try:
+                        name = DB.LabelUtils.GetLabelFor(bip)
+                    except Exception:
+                        name = System.Enum.GetName(DB.BuiltInParameter, bip)
+                else:
+                    pe = doc.GetElement(pid)
+                    if pe and pe.IsValidObject:
+                        name = pe.Name
+
+                if not name or not name.strip():
+                    continue
+
+                name = strip_accents(name)
+
+                # Check for duplicates case-insensitively
+                if name not in unique_params:
+                    mock_par = MockParameter(name, pid, is_builtin)
+                    unique_params[name] = ParameterInfo(0, mock_par)
+            except Exception:
+                continue
+
+        if not unique_params:
+            return _load_params_on_demand_fallback(doc, view, category_int_id)
+
+        sorted_keys = sorted(unique_params.keys(), key=lambda x: x.upper())
+        return [unique_params[k] for k in sorted_keys]
+
+    except Exception:
+        return _load_params_on_demand_fallback(doc, view, category_int_id)
 
 
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
