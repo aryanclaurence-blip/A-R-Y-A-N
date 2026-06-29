@@ -1720,32 +1720,11 @@ class ColorSplasherProWindow(forms.WPFWindow):
             self._table_data_2.Rows.Add("Select Parameter", 0)
 
             if sel_cat != 0 and sender.SelectedIndex != 0:
-                # Use already-loaded parameters from startup (sel_cat.par)
-                # Only re-scan if links are enabled AND parameters aren't loaded yet
-                include_links = self._radio_links.IsChecked or self._radio_all.IsChecked
-                if include_links and _PRO_ENGINE_OK:
-                    # Need to merge link params — but do it safely with FirstElement approach
-                    try:
-                        self._loaded_links = get_loaded_links(revit.DOCS.doc)
-                    except Exception:
-                        pass
-                    try:
-                        link_par = collect_parameters_for_category(
-                            revit.DOCS.doc, self.crt_view, sel_cat.int_id,
-                            include_links=True,
-                            loaded_links=self._loaded_links,
-                            include_host=False  # host params already in sel_cat.par
-                        )
-                        # Merge: add link params not already in sel_cat.par
-                        existing_names = set(p.name for p in (sel_cat.par or []))
-                        merged = list(sel_cat.par or [])
-                        for lp in link_par:
-                            if lp.name not in existing_names:
-                                merged.append(lp)
-                                existing_names.add(lp.name)
-                        sel_cat.par = sorted(merged, key=lambda p: p.name.upper())
-                    except Exception:
-                        pass  # Fall back to pre-loaded params only
+                # Load parameters on-demand if not already loaded for this category
+                if not sel_cat.par:
+                    sel_cat.par = _load_params_on_demand(
+                        revit.DOCS.doc, self.crt_view, sel_cat.int_id
+                    )
                 
                 if not sel_cat.par:
                     self._table_data_2.Rows.Clear()
@@ -3030,84 +3009,92 @@ def _load_params_for_element(ele, doc_param):
         return []
 
 
+def _load_params_on_demand(doc, view, category_int_id):
+    """
+    Safely load parameters for a category using a single FirstElementId() call.
+    This is the crash-safe way to load params: get just the ID first (no element),
+    then fetch the element, then read parameters — all fully guarded.
+    """
+    try:
+        import System
+        bic = None
+        try:
+            bic = System.Enum.ToObject(DB.BuiltInCategory, category_int_id)
+        except Exception:
+            return []
+
+        # Step 1: Get just the ElementId — safest possible Revit API call
+        eid = None
+        try:
+            eid = (
+                DB.FilteredElementCollector(doc, view.Id)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .FirstElementId()
+            )
+        except Exception:
+            pass
+
+        # Step 2: If no element in view, try whole document
+        if eid is None or eid == DB.ElementId.InvalidElementId:
+            try:
+                eid = (
+                    DB.FilteredElementCollector(doc)
+                    .OfCategory(bic)
+                    .WhereElementIsNotElementType()
+                    .FirstElementId()
+                )
+            except Exception:
+                return []
+
+        if eid is None or eid == DB.ElementId.InvalidElementId:
+            return []
+
+        # Step 3: Get the element by ID (safe direct lookup)
+        try:
+            ele = doc.GetElement(eid)
+        except Exception:
+            return []
+
+        if ele is None:
+            return []
+
+        # Step 4: Load parameters from this one element
+        return _load_params_for_element(ele, doc)
+
+    except Exception:
+        return []
+
+
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
+    """
+    Return sorted list of CategoryInfo for all model categories.
+    Uses Document.Settings.Categories — NO element scanning at all.
+    This is completely crash-safe for any model size.
+    Parameters are loaded on-demand when user selects a category.
+    """
     try:
         if doc_param is None:
             doc_param = acti_view.Document
     except (AttributeError, RuntimeError):
         doc_param = revit.DOCS.doc
 
-    elementid_value_getter = get_elementid_value_func()
-    unique_cats   = {}  # cat_id_int -> Category object
-    first_elements = {} # cat_id_int -> first valid element for this category
-
-    # --- Host elements ---
-    # Lazy iteration: process ONE element at a time, never load everything into RAM.
-    # We only keep the first element found per category for parameter discovery.
+    result = []
     try:
-        host_collector = (
-            DB.FilteredElementCollector(doc_param, acti_view.Id)
-            .WhereElementIsNotElementType()
-        )
-        for ele in host_collector:
+        for cat in doc_param.Settings.Categories:
             try:
-                if ele is None or not ele.IsValidObject:
+                # Only include Model categories (not annotation, tags, etc.)
+                if cat.CategoryType != DB.CategoryType.Model:
                     continue
-                if ele.Category is None:
-                    continue
-                cat_id = elementid_value_getter(ele.Category.Id)
+                cat_id = get_element_int_id(cat.Id)
                 if cat_id in cat_exc or cat_id >= -1:
                     continue
-                if cat_id not in unique_cats:
-                    unique_cats[cat_id]    = ele.Category
-                    first_elements[cat_id] = ele
+                # Empty par list — loaded on-demand when user selects this category
+                result.append(CategoryInfo(cat, []))
             except Exception:
                 continue
     except Exception:
         pass
-
-    # --- Link elements ---
-    try:
-        loaded_links = get_loaded_links(doc_param)
-        for li in loaded_links:
-            try:
-                link_doc = li.link_doc
-                if not link_doc or not link_doc.IsValidObject:
-                    continue
-                link_collector = (
-                    DB.FilteredElementCollector(link_doc)
-                    .WhereElementIsNotElementType()
-                )
-                for ele in link_collector:
-                    try:
-                        if ele is None or not ele.IsValidObject:
-                            continue
-                        if ele.Category is None:
-                            continue
-                        cat_id = elementid_value_getter(ele.Category.Id)
-                        if cat_id in cat_exc or cat_id >= -1:
-                            continue
-                        if cat_id not in unique_cats:
-                            unique_cats[cat_id]    = ele.Category
-                            first_elements[cat_id] = ele
-                    except Exception:
-                        continue
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    # Build CategoryInfo — load parameters from the one stored sample element per category
-    result = []
-    for cat_id, cat in unique_cats.items():
-        params = []
-        try:
-            sample = first_elements.get(cat_id)
-            if sample and sample.IsValidObject:
-                params = _load_params_for_element(sample, doc_param)
-        except Exception:
-            pass
-        result.append(CategoryInfo(cat, params))
 
     return sorted(result, key=lambda x: x.name)
 
