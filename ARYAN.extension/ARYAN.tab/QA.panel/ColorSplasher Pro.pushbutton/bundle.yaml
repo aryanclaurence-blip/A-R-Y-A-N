@@ -13,7 +13,3 @@ author: ARYAN (upgrade) / BIMOne Inc. (original ColorSplasher - MIT License 2021
 highlight: new
 min_revit_version: 2019
 max_revit_version: 2027
-engine:
-  clean: true
-  persistent: true
-  full_frame: true

@@ -1289,11 +1289,40 @@ class ColorSplasherProWindow(forms.WPFWindow):
     # ------------------------------------------------------------------
 
     def closed(self, sender, args):
-        pyrevit_script.save_window_position(self)
+        try:
+            pyrevit_script.save_window_position(self)
+        except Exception:
+            pass
+
+        # Cleanup static references to prevent reload crashes
+        try:
+            SubscribeView._wndw = None
+            ApplyColors._wndw = None
+            ApplyColorsPro._wndw = None
+            ResetColors._wndw = None
+            CreateLegend._wndw = None
+            CreateFilters._wndw = None
+            ColorSplasherProWindow._current_wndw = None
+        except Exception:
+            pass
+
+        # Dispose of external events
+        if hasattr(self, '_ext_events') and self._ext_events:
+            for ev in self._ext_events:
+                if ev:
+                    try:
+                        ev.Dispose()
+                    except Exception:
+                        pass
+            self._ext_events = []
 
     def closing_event(self, sender, e):
         self.IsOpen = 0
-        self.uns_event.Raise()
+        if hasattr(self, 'uns_event') and self.uns_event:
+            try:
+                self.uns_event.Raise()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Status helpers
@@ -2968,6 +2997,16 @@ def launch_color_splasher_pro():
 
         if wndw._categories.Items.Count > 0:
             wndw._categories.SelectedIndex = 0
+
+        # Store external event handles on window for disposal on close
+        wndw._ext_events = [
+            ext_event,
+            ext_event_uns,
+            ext_event_filters,
+            ext_event_reset,
+            ext_event_legend,
+            ext_event_pro
+        ]
 
         # Wire class-level references (same pattern as original)
         SubscribeView._wndw = wndw
