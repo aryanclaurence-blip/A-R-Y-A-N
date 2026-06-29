@@ -3037,60 +3037,79 @@ def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
     except (AttributeError, RuntimeError):
         doc_param = revit.DOCS.doc
 
-    # Do NOT use WhereElementIsViewIndependent — it excludes Ceilings, Floors, Rooms, etc.
-    # Use a plain view-scoped collector to get ALL element categories in the view.
+    elementid_value_getter = get_elementid_value_func()
+    unique_cats   = {}  # cat_id_int -> Category object
+    first_elements = {} # cat_id_int -> first valid element for this category
+
+    # --- Host elements ---
+    # Lazy iteration: process ONE element at a time, never load everything into RAM.
+    # We only keep the first element found per category for parameter discovery.
     try:
-        collector = (
+        host_collector = (
             DB.FilteredElementCollector(doc_param, acti_view.Id)
             .WhereElementIsNotElementType()
-            .ToElements()
         )
+        for ele in host_collector:
+            try:
+                if ele is None or not ele.IsValidObject:
+                    continue
+                if ele.Category is None:
+                    continue
+                cat_id = elementid_value_getter(ele.Category.Id)
+                if cat_id in cat_exc or cat_id >= -1:
+                    continue
+                if cat_id not in unique_cats:
+                    unique_cats[cat_id]    = ele.Category
+                    first_elements[cat_id] = ele
+            except Exception:
+                continue
     except Exception:
-        collector = []
-    
-    unique_cats = {} # key: cat_id_int, value: CategoryInfo
-    elementid_value_getter = get_elementid_value_func()
-    
-    def process_element(ele):
-        try:
-            if ele is None or not ele.IsValidObject:
-                return
-            if ele.Category is None:
-                return
-            current_int_cat_id = elementid_value_getter(ele.Category.Id)
-            if current_int_cat_id in cat_exc or current_int_cat_id >= -1:
-                return
-            if current_int_cat_id not in unique_cats:
-                # Load parameters using FirstElement approach (fast + crash-safe)
-                cat_params = _load_params_for_element(ele, doc_param)
-                unique_cats[current_int_cat_id] = CategoryInfo(ele.Category, cat_params)
-        except Exception:
-            pass
-            
-    for ele in collector:
-        process_element(ele)
-        
-    # Gather from loaded links as well
+        pass
+
+    # --- Link elements ---
     try:
         loaded_links = get_loaded_links(doc_param)
         for li in loaded_links:
             try:
                 link_doc = li.link_doc
-                if link_doc and link_doc.IsValidObject:
-                    link_collector = (
-                        DB.FilteredElementCollector(link_doc)
-                        .WhereElementIsNotElementType()
-                        .ToElements()
-                    )
-                    for ele in link_collector:
-                        process_element(ele)
+                if not link_doc or not link_doc.IsValidObject:
+                    continue
+                link_collector = (
+                    DB.FilteredElementCollector(link_doc)
+                    .WhereElementIsNotElementType()
+                )
+                for ele in link_collector:
+                    try:
+                        if ele is None or not ele.IsValidObject:
+                            continue
+                        if ele.Category is None:
+                            continue
+                        cat_id = elementid_value_getter(ele.Category.Id)
+                        if cat_id in cat_exc or cat_id >= -1:
+                            continue
+                        if cat_id not in unique_cats:
+                            unique_cats[cat_id]    = ele.Category
+                            first_elements[cat_id] = ele
+                    except Exception:
+                        continue
             except Exception:
-                pass
+                continue
     except Exception:
         pass
-        
-    sorted_cats = sorted(unique_cats.values(), key=lambda x: x.name)
-    return sorted_cats
+
+    # Build CategoryInfo — load parameters from the one stored sample element per category
+    result = []
+    for cat_id, cat in unique_cats.items():
+        params = []
+        try:
+            sample = first_elements.get(cat_id)
+            if sample and sample.IsValidObject:
+                params = _load_params_for_element(sample, doc_param)
+        except Exception:
+            pass
+        result.append(CategoryInfo(cat, params))
+
+    return sorted(result, key=lambda x: x.name)
 
 
 def solid_fill_pattern_id():
