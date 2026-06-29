@@ -3139,10 +3139,10 @@ def _load_params_on_demand(doc, view, category_int_id):
     """
     try:
         import System
-        from System.Collections.Generic import List as SystemList
+        from pyrevit.framework import List as FrameworkList
 
         # Build category list
-        cat_ids = SystemList[DB.ElementId]()
+        cat_ids = FrameworkList[DB.ElementId]()
         cat_ids.Add(DB.ElementId(category_int_id))
 
         # Native Revit API schema query
@@ -3155,7 +3155,19 @@ def _load_params_on_demand(doc, view, category_int_id):
                 is_builtin = pid.IntegerValue < 0
 
                 if is_builtin:
-                    bip = System.Enum.ToObject(DB.BuiltInParameter, pid.IntegerValue)
+                    # Safest enum conversion in IronPython
+                    bip = None
+                    try:
+                        bip = System.Enum.ToObject(DB.BuiltInParameter, pid.IntegerValue)
+                    except Exception:
+                        try:
+                            bip = DB.BuiltInParameter(pid.IntegerValue)
+                        except Exception:
+                            continue
+                    
+                    if bip is None:
+                        continue
+
                     if bip in (
                         DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
                         DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
@@ -3164,7 +3176,10 @@ def _load_params_on_demand(doc, view, category_int_id):
                     try:
                         name = DB.LabelUtils.GetLabelFor(bip)
                     except Exception:
-                        name = System.Enum.GetName(DB.BuiltInParameter, bip)
+                        try:
+                            name = bip.ToString()
+                        except Exception:
+                            continue
                 else:
                     pe = doc.GetElement(pid)
                     if pe and pe.IsValidObject:
@@ -3182,14 +3197,15 @@ def _load_params_on_demand(doc, view, category_int_id):
             except Exception:
                 continue
 
-        if not unique_params:
-            return _load_params_on_demand_fallback(doc, view, category_int_id)
+        if unique_params:
+            sorted_keys = sorted(unique_params.keys(), key=lambda x: x.upper())
+            return [unique_params[k] for k in sorted_keys]
 
-        sorted_keys = sorted(unique_params.keys(), key=lambda x: x.upper())
-        return [unique_params[k] for k in sorted_keys]
+    except Exception as ex:
+        logger.debug("Schema param load failed: %s", str(ex))
 
-    except Exception:
-        return _load_params_on_demand_fallback(doc, view, category_int_id)
+    # Never fallback to crashing element-query methods
+    return []
 
 
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
