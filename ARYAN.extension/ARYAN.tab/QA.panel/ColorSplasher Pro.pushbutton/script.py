@@ -3012,8 +3012,7 @@ def _load_params_for_element(ele, doc_param):
 def _load_params_on_demand(doc, view, category_int_id):
     """
     Safely load parameters for a category using a single FirstElementId() call.
-    This is the crash-safe way to load params: get just the ID first (no element),
-    then fetch the element, then read parameters — all fully guarded.
+    Uses document-scoped collectors first (extremely fast index lookup) to avoid UI hang on large views.
     """
     try:
         import System
@@ -3023,11 +3022,11 @@ def _load_params_on_demand(doc, view, category_int_id):
         except Exception:
             return []
 
-        # Step 1: Get just the ElementId — safest possible Revit API call
+        # Step 1: Get just the ElementId from document - safest and fastest possible index search
         eid = None
         try:
             eid = (
-                DB.FilteredElementCollector(doc, view.Id)
+                DB.FilteredElementCollector(doc)
                 .OfCategory(bic)
                 .WhereElementIsNotElementType()
                 .FirstElementId()
@@ -3035,31 +3034,78 @@ def _load_params_on_demand(doc, view, category_int_id):
         except Exception:
             pass
 
-        # Step 2: If no element in view, try whole document
+        # Step 2: Try type elements if no instance exists in host document
         if eid is None or eid == DB.ElementId.InvalidElementId:
             try:
                 eid = (
                     DB.FilteredElementCollector(doc)
                     .OfCategory(bic)
+                    .WhereElementIsElementType()
+                    .FirstElementId()
+                )
+            except Exception:
+                pass
+
+        # Step 3: Try linked models
+        if eid is None or eid == DB.ElementId.InvalidElementId:
+            try:
+                loaded_links = get_loaded_links(doc)
+                for li in loaded_links:
+                    try:
+                        link_doc = li.link_doc
+                        if link_doc and link_doc.IsValidObject:
+                            eid = (
+                                DB.FilteredElementCollector(link_doc)
+                                .OfCategory(bic)
+                                .WhereElementIsNotElementType()
+                                .FirstElementId()
+                            )
+                            if eid and eid != DB.ElementId.InvalidElementId:
+                                ele = link_doc.GetElement(eid)
+                                if ele and ele.IsValidObject:
+                                    return _load_params_for_element(ele, link_doc)
+                            
+                            # Try link type elements
+                            eid = (
+                                DB.FilteredElementCollector(link_doc)
+                                .OfCategory(bic)
+                                .WhereElementIsElementType()
+                                .FirstElementId()
+                            )
+                            if eid and eid != DB.ElementId.InvalidElementId:
+                                ele = link_doc.GetElement(eid)
+                                if ele and ele.IsValidObject:
+                                    return _load_params_for_element(ele, link_doc)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        # Step 4: Fallback to view-scoped only if document searches failed (unlikely)
+        if eid is None or eid == DB.ElementId.InvalidElementId:
+            try:
+                eid = (
+                    DB.FilteredElementCollector(doc, view.Id)
+                    .OfCategory(bic)
                     .WhereElementIsNotElementType()
                     .FirstElementId()
                 )
             except Exception:
-                return []
+                pass
 
         if eid is None or eid == DB.ElementId.InvalidElementId:
             return []
 
-        # Step 3: Get the element by ID (safe direct lookup)
+        # Step 5: Get the element by ID (safe direct lookup)
         try:
             ele = doc.GetElement(eid)
         except Exception:
             return []
 
-        if ele is None:
+        if ele is None or not ele.IsValidObject:
             return []
 
-        # Step 4: Load parameters from this one element
+        # Step 6: Load parameters from this one element
         return _load_params_for_element(ele, doc)
 
     except Exception:
