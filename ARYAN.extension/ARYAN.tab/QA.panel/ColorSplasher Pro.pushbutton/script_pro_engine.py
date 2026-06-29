@@ -130,6 +130,22 @@ def solid_fill_pattern_id_for_doc(doc):
 DELIMITER = u' | '
 
 
+
+
+def get_ordered_parameters_safe(element):
+    """Return parameters without touching Element.Parameters, which can crash Revit."""
+    if element is None:
+        return []
+    try:
+        if hasattr(element, "IsValidObject") and not element.IsValidObject:
+            return []
+    except Exception:
+        return []
+    try:
+        return list(element.GetOrderedParameters())
+    except Exception:
+        return []
+
 def get_param_value_safe(element, param_name, doc):
     """
     Read parameter value from element (instance first, then type).
@@ -138,7 +154,7 @@ def get_param_value_safe(element, param_name, doc):
     try:
         from pyrevit import DB as _DB
         # Instance parameters
-        for pr in element.Parameters:
+        for pr in get_ordered_parameters_safe(element):
             try:
                 if strip_accents(pr.Definition.Name) == strip_accents(param_name):
                     return _read_single_param(pr, doc)
@@ -147,7 +163,7 @@ def get_param_value_safe(element, param_name, doc):
         # Type parameters
         typ = element.Document.GetElement(element.GetTypeId())
         if typ:
-            for pr in typ.Parameters:
+            for pr in get_ordered_parameters_safe(typ):
                 try:
                     if strip_accents(pr.Definition.Name) == strip_accents(param_name):
                         return _read_single_param(pr, doc)
@@ -682,7 +698,7 @@ def get_range_values_multi(
         compound_key = DELIMITER.join(parts)
 
         raw_param = None
-        for pr in ele.Parameters:
+        for pr in get_ordered_parameters_safe(ele):
             try:
                 if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
                     raw_param = pr
@@ -693,7 +709,7 @@ def get_range_values_multi(
             try:
                 typ = ele_doc.GetElement(ele.GetTypeId())
                 if typ:
-                    for pr in typ.Parameters:
+                    for pr in get_ordered_parameters_safe(typ):
                         if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
                             raw_param = pr
                             break

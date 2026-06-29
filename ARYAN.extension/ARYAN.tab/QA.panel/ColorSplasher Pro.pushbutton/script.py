@@ -2997,10 +2997,9 @@ def get_range_values(category, param, new_view, scope="view"):
             try:
                 params_list = ele_par.GetOrderedParameters()
             except Exception:
-                try:
-                    params_list = list(ele_par.Parameters)
-                except Exception:
-                    params_list = []
+                # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                # Revit in unmanaged code on some elements.
+                params_list = []
             for pr in params_list:
                 try:
                     if pr.Definition.Name == param.par.Name:
@@ -3131,10 +3130,9 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
             try:
                 params_list = ele.GetOrderedParameters()
             except Exception:
-                try:
-                    params_list = list(ele.Parameters)
-                except Exception:
-                    params_list = []
+                # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                # Revit in unmanaged code on some elements.
+                params_list = []
             for par in params_list:
                 try:
                     if par.Definition.BuiltInParameter in (
@@ -3165,10 +3163,9 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
                         try:
                             params_list = typ.GetOrderedParameters()
                         except Exception:
-                            try:
-                                params_list = list(typ.Parameters)
-                            except Exception:
-                                params_list = []
+                            # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                            # Revit in unmanaged code on some elements.
+                            params_list = []
                         for par in params_list:
                             try:
                                 if par.Definition.BuiltInParameter in (
@@ -3209,10 +3206,9 @@ def _load_params_for_element(ele, doc_param):
         try:
             params_list = ele.GetOrderedParameters()
         except Exception:
-            try:
-                params_list = list(ele.Parameters)
-            except Exception:
-                params_list = []
+            # Do not fall back to .Parameters; pyRevit/IronPython can crash
+            # Revit in unmanaged code on some elements.
+            params_list = []
         for par in params_list:
             try:
                 name = strip_accents(par.Definition.Name)
@@ -3236,10 +3232,9 @@ def _load_params_for_element(ele, doc_param):
                     try:
                         params_list = typ.GetOrderedParameters()
                     except Exception:
-                        try:
-                            params_list = list(typ.Parameters)
-                        except Exception:
-                            params_list = []
+                        # Do not fall back to .Parameters; pyRevit/IronPython can crash
+                        # Revit in unmanaged code on some elements.
+                        params_list = []
                     for par in params_list:
                         try:
                             name = strip_accents(par.Definition.Name)
