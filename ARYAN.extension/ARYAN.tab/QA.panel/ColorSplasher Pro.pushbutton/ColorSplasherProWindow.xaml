@@ -496,13 +496,12 @@
                         <TextBlock Text="2. PARAMETER" Style="{StaticResource BentoLabel}" Margin="0,0,0,2"/>
                         <ComboBox x:Name="_list_box1" Style="{StaticResource CleanCombo}" DisplayMemberPath="Key" SelectionChanged="check_item"/>
                         
-                        <!-- Secondary/Tertiary Parameters (visible only in Multi-Param mode) -->
+                        <!-- Dynamic Parameters Panel (visible only in Multi-Param mode) -->
                         <StackPanel Visibility="{Binding IsChecked, ElementName=_radio_multi, Converter={StaticResource BoolToVis}}" Margin="0,6,0,0">
-                            <TextBlock Text="Secondary Parameter" FontSize="9" Foreground="{StaticResource TextMuted}" Margin="0,4,0,2"/>
-                            <ComboBox x:Name="_combo_secondary" Style="{StaticResource CleanCombo}" Height="28" SelectionChanged="on_secondary_tertiary_changed"/>
-                            
-                            <TextBlock Text="Tertiary Parameter" FontSize="9" Foreground="{StaticResource TextMuted}" Margin="0,4,0,2"/>
-                            <ComboBox x:Name="_combo_tertiary" Style="{StaticResource CleanCombo}" Height="28" SelectionChanged="on_secondary_tertiary_changed"/>
+                            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto" Margin="0,0,0,4">
+                                <StackPanel x:Name="_panel_multi_params"/>
+                            </ScrollViewer>
+                            <Button x:Name="_btn_add_param" Style="{StaticResource BtnSecondary}" Height="30" Content="+ Add Parameter" Click="btn_add_param_click"/>
                         </StackPanel>
                     </StackPanel>
                 </Grid>

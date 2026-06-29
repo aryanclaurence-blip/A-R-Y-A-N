@@ -1058,13 +1058,10 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._list_box1.ItemsSource = self._table_data_2.DefaultView
         self._list_box1.SelectedIndex = 0
 
-        # Secondary / tertiary combos — start empty
-        self._combo_secondary.Items.Clear()
-        self._combo_secondary.Items.Add("(none)")
-        self._combo_secondary.SelectedIndex = 0
-        self._combo_tertiary.Items.Clear()
-        self._combo_tertiary.Items.Add("(none)")
-        self._combo_tertiary.SelectedIndex = 0
+        # Initialize dynamic parameter panel
+        self._dynamic_rows = []
+        self._panel_multi_params.Children.Clear()
+        self._add_parameter_dropdown()
 
         # Checkbox settings from config
         self._chk_line_color.IsChecked = self._config.get_option("apply_line_color_pro", False)
@@ -1116,20 +1113,15 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
         self.Closing += self.closing_event
 
-        # Icon
-        icon_path = join(_BUNDLE_DIR, "color_splasher.ico")
-        if not exists(icon_path):
-            icon_path = join(
-                dirname(dirname(__file__)),
-                "Wall Orientation QA.pushbutton",
-                "icon.png"
-            )
-        if exists(icon_path):
-            try:
-                if icon_path.endswith(".ico"):
-                    self.Icon = Drawing.Icon(icon_path)
-            except Exception:
-                pass
+        # Icon (Fix #1)
+        try:
+            from System.Windows.Media.Imaging import BitmapImage
+            from System import Uri
+            icon_path = join(_BUNDLE_DIR, "icon.png")
+            if exists(icon_path):
+                self.Icon = BitmapImage(Uri(icon_path))
+        except Exception as icon_ex:
+            logger.debug("Failed to load window icon: %s", str(icon_ex))
 
     def _update_mode_ui(self):
         """Show/hide secondary/tertiary combos and heat map band selector based on mode."""
@@ -1160,7 +1152,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             pass
 
     def _refresh_secondary_tertiary(self):
-        """Refresh secondary and tertiary parameter combos from current category params."""
+        """Refresh dynamic parameter combos from current category params."""
         try:
             sel_cat_row = self._categories.SelectedItem
             if sel_cat_row is None:
@@ -1172,17 +1164,28 @@ class ColorSplasherProWindow(forms.WPFWindow):
             if sel_cat == 0:
                 return
 
-            param_names = ["(none)"] + [p.name for p in sel_cat.par]
+            if not sel_cat.par:
+                param_names = ["No Parameters Available"]
+            else:
+                param_names = ["(none)"] + [p.name for p in sel_cat.par]
 
-            self._combo_secondary.Items.Clear()
-            self._combo_tertiary.Items.Clear()
-            for name in param_names:
-                self._combo_secondary.Items.Add(name)
-                self._combo_tertiary.Items.Add(name)
-            self._combo_secondary.SelectedIndex = 0
-            self._combo_tertiary.SelectedIndex = 0
-        except Exception:
-            pass
+            if not self._dynamic_rows:
+                self._add_parameter_dropdown()
+
+            for row_dict in self._dynamic_rows:
+                combo = row_dict["combo"]
+                curr_sel = combo.SelectedItem
+                combo.SelectionChanged -= self.on_dynamic_parameter_changed
+                combo.Items.Clear()
+                for name in param_names:
+                    combo.Items.Add(name)
+                if curr_sel in param_names:
+                    combo.SelectedItem = curr_sel
+                else:
+                    combo.SelectedIndex = 0
+                combo.SelectionChanged += self.on_dynamic_parameter_changed
+        except Exception as ex:
+            logger.debug("Error refreshing dynamic combos: %s", str(ex))
 
     # ------------------------------------------------------------------
     # Closed / closing
@@ -1361,7 +1364,8 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
             # Get selected category
             sel_cat_row = self._categories.SelectedItem
-            if sel_cat_row is None:
+            if sel_cat_row is None or self._categories.SelectedIndex <= 0:
+                self._set_status("Please select a category", success=False)
                 return
             cat_row = self._get_data_row_from_item(sel_cat_row, self._categories.SelectedIndex)
             if cat_row is None:
@@ -1372,7 +1376,8 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
             # Get selected primary parameter
             sel_par_row = self._list_box1.SelectedItem
-            if sel_par_row is None:
+            if sel_par_row is None or self._list_box1.SelectedIndex <= 0:
+                self._set_status("Please select a parameter", success=False)
                 return
             par_row = self._get_data_row_from_item(sel_par_row, self._list_box1.SelectedIndex)
             if par_row is None:
@@ -1437,28 +1442,17 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 self._all_value_items_raw = value_items
 
             elif is_multi and _PRO_ENGINE_OK:
-                # Multi-param mode
-                sec_name = None
-                ter_name = None
-                try:
-                    sec_idx = self._combo_secondary.SelectedIndex
-                    if sec_idx > 0:
-                        sec_name = self._combo_secondary.SelectedItem
-                        if sec_name == "(none)":
-                            sec_name = None
-                except Exception:
-                    pass
-                try:
-                    ter_idx = self._combo_tertiary.SelectedIndex
-                    if ter_idx > 0:
-                        ter_name = self._combo_tertiary.SelectedItem
-                        if ter_name == "(none)":
-                            ter_name = None
-                except Exception:
-                    pass
+                # Multi-param mode: collect all selected parameters from dynamic inputs
+                additional_names = []
+                for row_dict in self._dynamic_rows:
+                    combo = row_dict["combo"]
+                    sel_item = combo.SelectedItem
+                    if sel_item and sel_item != "(none)" and sel_item != "No Parameters Available":
+                        additional_names.append(sel_item)
+                
                 value_items = get_range_values_multi(
                     sel_cat, sel_param,
-                    sec_name, ter_name,
+                    additional_names,
                     view, doc,
                     link_elements=link_elements if use_links else None
                 )
@@ -1470,7 +1464,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 # If links requested, run multi-param to include them
                 if use_links and _PRO_ENGINE_OK:
                     value_items_links = get_range_values_multi(
-                        sel_cat, sel_param, None, None, view, doc,
+                        sel_cat, sel_param, [], view, doc,
                         link_elements=link_elements
                     )
                     # Merge: keep host values, add link-only values
@@ -1571,6 +1565,24 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._table_data_2.Rows.Add("Select Parameter", 0)
 
         if sel_cat != 0 and sender.SelectedIndex != 0:
+            doc = revit.DOCS.doc
+            view = self.crt_view
+            include_links = self._radio_links.IsChecked or self._radio_all.IsChecked
+            sel_cat.par = collect_parameters_for_category(
+                doc, view, sel_cat.int_id, 
+                include_links=include_links, 
+                loaded_links=self._loaded_links
+            )
+            
+            if not sel_cat.par:
+                self._table_data_2.Rows.Clear()
+                self._table_data_2.Rows.Add("No Parameters Available", 0)
+                self._list_box1.ItemsSource = self._table_data_2.DefaultView
+                self._list_box1.SelectedIndex = 0
+                self.list_box2.ItemsSource = self._table_data_3.DefaultView
+                self._update_placeholder_visibility()
+                return
+
             names_par = [x.name for x in sel_cat.par]
             for key_, value_ in zip(names_par, sel_cat.par):
                 self._table_data_2.Rows.Add(key_, value_)
@@ -1600,6 +1612,11 @@ class ColorSplasherProWindow(forms.WPFWindow):
         if not getattr(self, "_initialized", False):
             return
         self._update_mode_ui()
+        
+        # Ensure default dynamic row exists in Multi-Param mode
+        if self._radio_multi.IsChecked and not self._dynamic_rows:
+            self._add_parameter_dropdown()
+            
         # Refresh value list if a parameter is selected
         if (
             self._list_box1.SelectedIndex > 0
@@ -1611,15 +1628,123 @@ class ColorSplasherProWindow(forms.WPFWindow):
     # NEW: Secondary / Tertiary Parameter Selection handler
     # ------------------------------------------------------------------
 
-    def on_secondary_tertiary_changed(self, sender, e):
-        """Called when secondary or tertiary parameter selection changes."""
+    def on_dynamic_parameter_changed(self, sender, e):
+        """Called when any dynamic parameter selection changes."""
         if not getattr(self, "_initialized", False):
             return
-        if (
-            self._list_box1.SelectedIndex > 0
-            and self._categories.SelectedIndex > 0
-        ):
-            self._collect_value_items()
+        self._collect_value_items()
+
+    def btn_add_param_click(self, sender, e):
+        """Click handler for + Add Parameter button."""
+        self._add_parameter_dropdown()
+
+    def _add_parameter_dropdown(self, selected_name=None):
+        """Dynamically append a new parameter selector row."""
+        try:
+            from System.Windows.Controls import Grid, ColumnDefinition, ComboBox, Button, TextBlock
+            from System.Windows import GridLength, GridUnitType, Thickness, VerticalAlignment
+            from System.Windows.Media import Brushes, FontFamily
+            
+            row_index = len(self._dynamic_rows) + 2
+            
+            grid = Grid()
+            grid.Margin = Thickness(0, 4, 0, 4)
+            
+            col_lbl = ColumnDefinition()
+            col_lbl.Width = GridLength.Auto
+            col_cmb = ColumnDefinition()
+            col_cmb.Width = GridLength(1.0, GridUnitType.Star)
+            col_btn = ColumnDefinition()
+            col_btn.Width = GridLength.Auto
+            
+            grid.ColumnDefinitions.Add(col_lbl)
+            grid.ColumnDefinitions.Add(col_cmb)
+            grid.ColumnDefinitions.Add(col_btn)
+            
+            lbl = TextBlock()
+            lbl.Text = "Parameter {}: ".format(row_index)
+            lbl.VerticalAlignment = VerticalAlignment.Center
+            lbl.Width = 70
+            lbl.FontSize = 10
+            lbl.Foreground = self.FindResource("TextMuted")
+            Grid.SetColumn(lbl, 0)
+            grid.Children.Add(lbl)
+            
+            combo = ComboBox()
+            combo.Style = self.FindResource("CleanCombo")
+            combo.Height = 28
+            combo.VerticalAlignment = VerticalAlignment.Center
+            
+            sel_cat_row = self._categories.SelectedItem
+            param_names = []
+            if sel_cat_row is not None:
+                row = self._get_data_row_from_item(sel_cat_row, self._categories.SelectedIndex)
+                if row is not None and row["Value"] != 0 and row["Value"].par:
+                    param_names = ["(none)"] + [p.name for p in row["Value"].par]
+            
+            if not param_names:
+                param_names = ["No Parameters Available"]
+                
+            for name in param_names:
+                combo.Items.Add(name)
+                
+            if selected_name and selected_name in param_names:
+                combo.SelectedItem = selected_name
+            else:
+                combo.SelectedIndex = 0
+                
+            combo.SelectionChanged += self.on_dynamic_parameter_changed
+            Grid.SetColumn(combo, 1)
+            grid.Children.Add(combo)
+            
+            btn = Button()
+            btn.Style = self.FindResource("BtnSecondary")
+            btn.Width = 24
+            btn.Height = 28
+            btn.Margin = Thickness(4, 0, 0, 0)
+            btn.VerticalAlignment = VerticalAlignment.Center
+            
+            tb = TextBlock()
+            tb.Text = u"\uE711" # Chrome Close red glyph
+            tb.FontFamily = self.FindResource("Segoe MDL2 Assets") or FontFamily("Segoe MDL2 Assets")
+            tb.FontSize = 10
+            tb.Foreground = Brushes.Red
+            btn.Content = tb
+            
+            def on_del_click(s, ev):
+                self._remove_parameter_dropdown(grid)
+                
+            btn.Click += on_del_click
+            Grid.SetColumn(btn, 2)
+            grid.Children.Add(btn)
+            
+            self._panel_multi_params.Children.Add(grid)
+            self._dynamic_rows.append({"grid": grid, "label": lbl, "combo": combo})
+            self._update_dynamic_labels()
+            
+            if getattr(self, "_initialized", False):
+                self._collect_value_items()
+        except Exception as ex:
+            logger.debug("Error adding parameter: %s", str(ex))
+
+    def _remove_parameter_dropdown(self, grid):
+        """Remove a dynamic parameter selector row."""
+        try:
+            self._panel_multi_params.Children.Remove(grid)
+            self._dynamic_rows = [r for r in self._dynamic_rows if r["grid"] != grid]
+            self._update_dynamic_labels()
+            if getattr(self, "_initialized", False):
+                self._collect_value_items()
+        except Exception as ex:
+            logger.debug("Error removing parameter: %s", str(ex))
+
+    def _update_dynamic_labels(self):
+        """Re-index dynamic labels when rows are added/removed."""
+        try:
+            for idx, r in enumerate(self._dynamic_rows):
+                r["label"].Text = "Parameter {}: ".format(idx + 2)
+        except Exception as ex:
+            logger.debug("Error updating labels: %s", str(ex))
 
     # ------------------------------------------------------------------
     # NEW: Search values handler
@@ -1687,8 +1812,17 @@ class ColorSplasherProWindow(forms.WPFWindow):
     # ------------------------------------------------------------------
 
     def button_click_set_colors(self, sender, e):
-        if self.list_box2.Items.Count <= 0:
+        # Validation before applying colors (Fix #9)
+        if self._categories.SelectedIndex <= 0:
+            forms.alert("Please select a Category first.", title="ColorSplasher Pro")
             return
+        if self._list_box1.SelectedIndex <= 0:
+            forms.alert("Please select at least one Parameter.", title="ColorSplasher Pro")
+            return
+        if self.list_box2.Items.Count <= 0:
+            forms.alert("No values found to colorize. Please check your category and parameter selection.", title="ColorSplasher Pro")
+            return
+            
         # Choose handler based on mode
         is_standard = self._radio_standard.IsChecked
         if is_standard:
@@ -2478,6 +2612,99 @@ def safe_float(value):
         return float("inf")
 
 
+def collect_parameters_for_category(doc, view, category_int_id, include_links=False, loaded_links=[]):
+    """
+    Collect all unique parameters (instance & type, including project/shared/built-in)
+    from all elements of the specified category in the active view (and optionally link instances).
+    Returns a sorted list of ParameterInfo objects.
+    """
+    import System
+    
+    # 1. Find BuiltInCategory
+    bic = None
+    for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
+        if category_int_id == int(sample_bic):
+            bic = sample_bic
+            break
+            
+    if bic is None:
+        return []
+        
+    # 2. Collect host elements
+    elements = []
+    try:
+        collector = (
+            DB.FilteredElementCollector(doc, view.Id)
+            .OfCategory(bic)
+            .WhereElementIsNotElementType()
+            .ToElements()
+        )
+        elements.extend(collector)
+    except Exception:
+        pass
+        
+    # 3. Collect link elements if requested
+    if include_links:
+        for li in loaded_links:
+            try:
+                link_doc = li.link_doc
+                if link_doc:
+                    link_collector = (
+                        DB.FilteredElementCollector(link_doc)
+                        .OfCategory(bic)
+                        .WhereElementIsNotElementType()
+                        .ToElements()
+                    )
+                    elements.extend(link_collector)
+            except Exception:
+                pass
+                
+    # 4. Gather unique parameters
+    unique_params = {} # key: stripped_name, value: ParameterInfo
+    
+    for ele in elements:
+        # Instance parameters
+        try:
+            for par in ele.Parameters:
+                if par.Definition.BuiltInParameter in (
+                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                ):
+                    continue
+                name = strip_accents(par.Definition.Name)
+                if not name or name.strip() == "":
+                    continue
+                if name not in unique_params:
+                    unique_params[name] = ParameterInfo(0, par)
+        except Exception:
+            pass
+            
+        # Type parameters
+        try:
+            ele_doc = ele.Document
+            typ = ele_doc.GetElement(ele.GetTypeId())
+            if typ:
+                for par in typ.Parameters:
+                    if par.Definition.BuiltInParameter in (
+                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                        DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                    ):
+                        continue
+                    name = strip_accents(par.Definition.Name)
+                    if not name or name.strip() == "":
+                        continue
+                    if name not in unique_params:
+                        unique_params[name] = ParameterInfo(1, par)
+        except Exception:
+            pass
+            
+    # Sort alphabetically by name
+    sorted_keys = sorted(unique_params.keys(), key=lambda x: x.upper())
+    result = [unique_params[k] for k in sorted_keys]
+    
+    return result
+
+
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
     try:
         if doc_param is None:
@@ -2490,37 +2717,40 @@ def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
         .WhereElementIsViewIndependent()
         .ToElements()
     )
-    list_cat = []
-    for ele in collector:
+    
+    unique_cats = {} # key: cat_id_int, value: CategoryInfo
+    elementid_value_getter = get_elementid_value_func()
+    
+    def process_element(ele):
         if ele.Category is None:
-            continue
-        elementid_value_getter = get_elementid_value_func()
+            return
         current_int_cat_id = elementid_value_getter(ele.Category.Id)
-        if (
-            current_int_cat_id in cat_exc
-            or current_int_cat_id >= -1
-            or any(x.int_id == current_int_cat_id for x in list_cat)
-        ):
-            continue
-        list_parameters = []
-        for par in ele.Parameters:
-            if par.Definition.BuiltInParameter not in (
-                DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
-                DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
-            ):
-                list_parameters.append(ParameterInfo(0, par))
-        typ = ele.Document.GetElement(ele.GetTypeId())
-        if typ:
-            for par in typ.Parameters:
-                if par.Definition.BuiltInParameter not in (
-                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
-                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
-                ):
-                    list_parameters.append(ParameterInfo(1, par))
-        list_parameters = sorted(list_parameters, key=lambda x: x.name.upper())
-        list_cat.append(CategoryInfo(ele.Category, list_parameters))
-    list_cat = sorted(list_cat, key=lambda x: x.name)
-    return list_cat
+        if current_int_cat_id in cat_exc or current_int_cat_id >= -1:
+            return
+        if current_int_cat_id not in unique_cats:
+            unique_cats[current_int_cat_id] = CategoryInfo(ele.Category, [])
+            
+    for ele in collector:
+        process_element(ele)
+        
+    # Gather from loaded links as well
+    try:
+        loaded_links = get_loaded_links(doc_param)
+        for li in loaded_links:
+            link_doc = li.link_doc
+            if link_doc:
+                link_collector = (
+                    DB.FilteredElementCollector(link_doc)
+                    .WhereElementIsNotElementType()
+                    .ToElements()
+                )
+                for ele in link_collector:
+                    process_element(ele)
+    except Exception:
+        pass
+        
+    sorted_cats = sorted(unique_cats.values(), key=lambda x: x.name)
+    return sorted_cats
 
 
 def solid_fill_pattern_id():

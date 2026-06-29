@@ -22,6 +22,20 @@ import json
 import math
 from datetime import datetime
 from random import randint
+from unicodedata import normalize
+from unicodedata import category as unicode_category
+
+def strip_accents(text):
+    if not text:
+        return ""
+    try:
+        if isinstance(text, str):
+            text = text.decode('utf-8') if hasattr(text, 'decode') else text
+        return "".join(
+            char for char in normalize("NFKD", text) if unicode_category(char) != "Mn"
+        )
+    except Exception:
+        return text
 
 try:
     from pyrevit import DB, HOST_APP, revit
@@ -126,7 +140,7 @@ def get_param_value_safe(element, param_name, doc):
         # Instance parameters
         for pr in element.Parameters:
             try:
-                if pr.Definition.Name == param_name:
+                if strip_accents(pr.Definition.Name) == strip_accents(param_name):
                     return _read_single_param(pr, doc)
             except Exception:
                 continue
@@ -135,7 +149,7 @@ def get_param_value_safe(element, param_name, doc):
         if typ:
             for pr in typ.Parameters:
                 try:
-                    if pr.Definition.Name == param_name:
+                    if strip_accents(pr.Definition.Name) == strip_accents(param_name):
                         return _read_single_param(pr, doc)
                 except Exception:
                     continue
@@ -577,29 +591,14 @@ def _escape_csv(value):
 def get_range_values_multi(
     category_info,
     primary_param_info,
-    secondary_param_name,
-    tertiary_param_name,
+    additional_param_names,
     view,
     doc,
     link_elements=None
 ):
     """
-    Build a value list with compound keys from up to 3 parameters.
-
-    This extends the original get_range_values() by joining multiple
-    parameter values with DELIMITER.
-
-    Args:
-        category_info:        CategoryInfo object (existing class)
-        primary_param_info:   ParameterInfo object (existing class)
-        secondary_param_name: str or None
-        tertiary_param_name:  str or None
-        view:                 active Revit view
-        doc:                  host document
-        link_elements:        list of (element, link_name) from links, or None
-
-    Returns:
-        list of ValuesInfoPro objects
+    Build a value list with compound keys from any number of parameters.
+    Formats compound keys as 'Param1 = Val1 | Param2 = Val2' for readability.
     """
     try:
         from pyrevit import DB as _DB
@@ -645,20 +644,19 @@ def get_range_values_multi(
 
         primary_val = get_param_value_safe(ele, primary_param_name, ele_doc)
 
-        parts = [primary_val]
-        if secondary_param_name:
-            parts.append(get_param_value_safe(ele, secondary_param_name, ele_doc))
-        if tertiary_param_name:
-            parts.append(get_param_value_safe(ele, tertiary_param_name, ele_doc))
+        parts = [u"{} = {}".format(primary_param_name, primary_val)]
+        for name in additional_param_names:
+            if name:
+                parts.append(u"{} = {}".format(name, get_param_value_safe(ele, name, ele_doc)))
         if link_name:
-            parts.append(link_name)
+            parts.append(u"Link = {}".format(link_name))
 
         compound_key = DELIMITER.join(parts)
 
         raw_param = None
         for pr in ele.Parameters:
             try:
-                if pr.Definition.Name == primary_param_name:
+                if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
                     raw_param = pr
                     break
             except Exception:
@@ -668,7 +666,7 @@ def get_range_values_multi(
                 typ = ele_doc.GetElement(ele.GetTypeId())
                 if typ:
                     for pr in typ.Parameters:
-                        if pr.Definition.Name == primary_param_name:
+                        if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
                             raw_param = pr
                             break
             except Exception:
@@ -684,7 +682,10 @@ def get_range_values_multi(
                 break
 
         if match:
-            match.ele_id.Add(ele.Id)
+            try:
+                match.ele_id.Add(ele.Id)
+            except Exception:
+                match.ele_id.append(ele.Id)
             if raw_param.StorageType == _DB.StorageType.Double:
                 match.values_double.append(raw_param.AsDouble())
         else:
