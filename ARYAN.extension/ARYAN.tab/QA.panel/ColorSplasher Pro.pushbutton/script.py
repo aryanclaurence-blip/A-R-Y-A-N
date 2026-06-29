@@ -2728,10 +2728,16 @@ def random_color():
 def get_range_values(category, param, new_view, scope="view"):
     doc_param = new_view.Document
     bic = None
-    for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
-        if category.int_id == int(sample_bic):
-            bic = sample_bic
-            break
+    try:
+        for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
+            if category.int_id == int(sample_bic):
+                bic = sample_bic
+                break
+    except Exception:
+        pass
+
+    if bic is None:
+        return []
 
     if scope == "selected":
         try:
@@ -2739,15 +2745,19 @@ def get_range_values(category, param, new_view, scope="view"):
             selected_ids = uidoc.Selection.GetElementIds()
             collector = []
             for eid in selected_ids:
-                ele = doc_param.GetElement(eid)
-                if ele and ele.Category and get_element_int_id(ele.Category.Id) == category.int_id:
-                    if not isinstance(ele, DB.ElementType):
-                        collector.append(ele)
+                try:
+                    ele = doc_param.GetElement(eid)
+                    if ele and ele.IsValidObject and ele.Category:
+                        if get_element_int_id(ele.Category.Id) == category.int_id:
+                            if not isinstance(ele, DB.ElementType):
+                                collector.append(ele)
+                except Exception:
+                    continue
         except Exception:
             collector = []
     elif scope == "whole":
         try:
-            collector = (
+            collector = list(
                 DB.FilteredElementCollector(doc_param)
                 .OfCategory(bic)
                 .WhereElementIsNotElementType()
@@ -2756,13 +2766,11 @@ def get_range_values(category, param, new_view, scope="view"):
         except Exception:
             collector = []
     else:
-        # Default: current view
         try:
-            collector = (
+            collector = list(
                 DB.FilteredElementCollector(doc_param, new_view.Id)
                 .OfCategory(bic)
                 .WhereElementIsNotElementType()
-                .WhereElementIsViewIndependent()
                 .ToElements()
             )
         except Exception:
@@ -2770,26 +2778,40 @@ def get_range_values(category, param, new_view, scope="view"):
     list_values = []
     used_colors = set()
     for ele in collector:
-        ele_par = (
-            ele if param.param_type != 1 else doc_param.GetElement(ele.GetTypeId())
-        )
-        for pr in ele_par.Parameters:
-            if pr.Definition.Name == param.par.Name:
-                value = get_parameter_value(pr) or "None"
-                match = [x for x in list_values if x.value == value]
-                if match:
-                    match[0].ele_id.Add(ele.Id)
-                    if pr.StorageType == DB.StorageType.Double:
-                        match[0].values_double.append(pr.AsDouble())
-                else:
-                    while True:
-                        r, g, b = random_color()
-                        if (r, g, b) not in used_colors:
-                            used_colors.add((r, g, b))
-                            val = ValuesInfo(pr, value, ele.Id, r, g, b)
-                            list_values.append(val)
-                            break
-                break
+        try:
+            if ele is None or not ele.IsValidObject:
+                continue
+            if param.param_type == 1:
+                type_id = ele.GetTypeId()
+                if type_id is None or type_id == DB.ElementId.InvalidElementId:
+                    continue
+                ele_par = doc_param.GetElement(type_id)
+                if ele_par is None or not ele_par.IsValidObject:
+                    continue
+            else:
+                ele_par = ele
+            for pr in ele_par.Parameters:
+                try:
+                    if pr.Definition.Name == param.par.Name:
+                        value = get_parameter_value(pr) or "None"
+                        match = [x for x in list_values if x.value == value]
+                        if match:
+                            match[0].ele_id.Add(ele.Id)
+                            if pr.StorageType == DB.StorageType.Double:
+                                match[0].values_double.append(pr.AsDouble())
+                        else:
+                            while True:
+                                r, g, b = random_color()
+                                if (r, g, b) not in used_colors:
+                                    used_colors.add((r, g, b))
+                                    val = ValuesInfo(pr, value, ele.Id, r, g, b)
+                                    list_values.append(val)
+                                    break
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            continue
     none_values = [x for x in list_values if x.value == "None"]
     list_values = [x for x in list_values if x.value != "None"]
     list_values = sorted(list_values, key=lambda x: x.value, reverse=False)
@@ -2819,7 +2841,7 @@ def safe_float(value):
         return float("inf")
 
 
-def collect_parameters_for_category(doc, view, category_int_id, include_links=False, loaded_links=[]):
+def collect_parameters_for_category(doc, view, category_int_id, include_links=False, loaded_links=[], include_host=True):
     """
     Collect all unique parameters (instance & type, including project/shared/built-in)
     from all elements of the specified category in the active view (and optionally link instances).
@@ -2840,23 +2862,27 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
     if bic is None:
         return []
         
-    # 2. Collect host elements (limit to 50 for speed and safety)
+    # 2. Collect host elements — use ToElements() for safe materialization, slice to 50
     elements = []
-    try:
-        collector = (
-            DB.FilteredElementCollector(doc, view.Id)
-            .OfCategory(bic)
-            .WhereElementIsNotElementType()
-        )
-        count = 0
-        for ele in collector:
-            if ele and ele.IsValidObject:
-                elements.append(ele)
-                count += 1
-                if count >= 50:
-                    break
-    except Exception:
-        pass
+    if include_host:
+        try:
+            all_host = list(
+                DB.FilteredElementCollector(doc, view.Id)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .ToElements()
+            )
+            # Slice to max 50 valid elements to prevent UI freeze on large models
+            count = 0
+            for ele in all_host:
+                if ele is not None and ele.IsValidObject:
+                    elements.append(ele)
+                    count += 1
+                    if count >= 50:
+                        break
+            del all_host
+        except Exception:
+            pass
         
     # 3. Collect link elements if requested (limit to 50 per link for speed and safety)
     if include_links:
