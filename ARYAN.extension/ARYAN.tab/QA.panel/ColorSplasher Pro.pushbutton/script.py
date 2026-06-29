@@ -1720,18 +1720,32 @@ class ColorSplasherProWindow(forms.WPFWindow):
             self._table_data_2.Rows.Add("Select Parameter", 0)
 
             if sel_cat != 0 and sender.SelectedIndex != 0:
-                doc = revit.DOCS.doc
-                view = self.crt_view
-                try:
-                    self._loaded_links = get_loaded_links(doc)
-                except Exception:
-                    pass
+                # Use already-loaded parameters from startup (sel_cat.par)
+                # Only re-scan if links are enabled AND parameters aren't loaded yet
                 include_links = self._radio_links.IsChecked or self._radio_all.IsChecked
-                sel_cat.par = collect_parameters_for_category(
-                    doc, view, sel_cat.int_id, 
-                    include_links=include_links, 
-                    loaded_links=self._loaded_links
-                )
+                if include_links and _PRO_ENGINE_OK:
+                    # Need to merge link params — but do it safely with FirstElement approach
+                    try:
+                        self._loaded_links = get_loaded_links(revit.DOCS.doc)
+                    except Exception:
+                        pass
+                    try:
+                        link_par = collect_parameters_for_category(
+                            revit.DOCS.doc, self.crt_view, sel_cat.int_id,
+                            include_links=True,
+                            loaded_links=self._loaded_links,
+                            include_host=False  # host params already in sel_cat.par
+                        )
+                        # Merge: add link params not already in sel_cat.par
+                        existing_names = set(p.name for p in (sel_cat.par or []))
+                        merged = list(sel_cat.par or [])
+                        for lp in link_par:
+                            if lp.name not in existing_names:
+                                merged.append(lp)
+                                existing_names.add(lp.name)
+                        sel_cat.par = sorted(merged, key=lambda p: p.name.upper())
+                    except Exception:
+                        pass  # Fall back to pre-loaded params only
                 
                 if not sel_cat.par:
                     self._table_data_2.Rows.Clear()
@@ -2960,30 +2974,98 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
         return []
 
 
+def _load_params_for_element(ele, doc_param):
+    """
+    Safely load all unique instance + type parameters from a single sample element.
+    Uses FirstElement approach - fast, crash-safe, no heavy collection needed.
+    Returns a sorted list of ParameterInfo objects.
+    """
+    unique_params = {}
+    try:
+        if ele is None or not ele.IsValidObject:
+            return []
+        # Instance parameters
+        for par in ele.Parameters:
+            try:
+                name = strip_accents(par.Definition.Name)
+                if not name or not name.strip():
+                    continue
+                if par.Definition.BuiltInParameter in (
+                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                    DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                ):
+                    continue
+                if name not in unique_params:
+                    unique_params[name] = ParameterInfo(0, par)
+            except Exception:
+                continue
+        # Type parameters
+        try:
+            type_id = ele.GetTypeId()
+            if type_id and type_id != DB.ElementId.InvalidElementId:
+                typ = doc_param.GetElement(type_id)
+                if typ and typ.IsValidObject:
+                    for par in typ.Parameters:
+                        try:
+                            name = strip_accents(par.Definition.Name)
+                            if not name or not name.strip():
+                                continue
+                            if par.Definition.BuiltInParameter in (
+                                DB.BuiltInParameter.ELEM_CATEGORY_PARAM,
+                                DB.BuiltInParameter.ELEM_CATEGORY_PARAM_MT,
+                            ):
+                                continue
+                            if name not in unique_params:
+                                unique_params[name] = ParameterInfo(1, par)
+                        except Exception:
+                            continue
+        except Exception:
+            pass
+    except Exception:
+        return []
+    try:
+        sorted_keys = sorted(unique_params.keys(), key=lambda x: x.upper())
+        return [unique_params[k] for k in sorted_keys]
+    except Exception:
+        return []
+
+
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
     try:
         if doc_param is None:
             doc_param = acti_view.Document
     except (AttributeError, RuntimeError):
         doc_param = revit.DOCS.doc
-    collector = (
-        DB.FilteredElementCollector(doc_param, acti_view.Id)
-        .WhereElementIsNotElementType()
-        .WhereElementIsViewIndependent()
-        .ToElements()
-    )
+
+    # Do NOT use WhereElementIsViewIndependent — it excludes Ceilings, Floors, Rooms, etc.
+    # Use a plain view-scoped collector to get ALL element categories in the view.
+    try:
+        collector = (
+            DB.FilteredElementCollector(doc_param, acti_view.Id)
+            .WhereElementIsNotElementType()
+            .ToElements()
+        )
+    except Exception:
+        collector = []
     
     unique_cats = {} # key: cat_id_int, value: CategoryInfo
     elementid_value_getter = get_elementid_value_func()
     
     def process_element(ele):
-        if ele.Category is None:
-            return
-        current_int_cat_id = elementid_value_getter(ele.Category.Id)
-        if current_int_cat_id in cat_exc or current_int_cat_id >= -1:
-            return
-        if current_int_cat_id not in unique_cats:
-            unique_cats[current_int_cat_id] = CategoryInfo(ele.Category, [])
+        try:
+            if ele is None or not ele.IsValidObject:
+                return
+            if ele.Category is None:
+                return
+            current_int_cat_id = elementid_value_getter(ele.Category.Id)
+            if current_int_cat_id in cat_exc or current_int_cat_id >= -1:
+                return
+            if current_int_cat_id not in unique_cats:
+                # Load parameters using FirstElement approach (fast + crash-safe)
+                cat_params = _load_params_for_element(ele, doc_param)
+                unique_cats[current_int_cat_id] = CategoryInfo(ele.Category, cat_params)
+        except Exception:
+            pass
             
     for ele in collector:
         process_element(ele)
@@ -2992,15 +3074,18 @@ def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
     try:
         loaded_links = get_loaded_links(doc_param)
         for li in loaded_links:
-            link_doc = li.link_doc
-            if link_doc:
-                link_collector = (
-                    DB.FilteredElementCollector(link_doc)
-                    .WhereElementIsNotElementType()
-                    .ToElements()
-                )
-                for ele in link_collector:
-                    process_element(ele)
+            try:
+                link_doc = li.link_doc
+                if link_doc and link_doc.IsValidObject:
+                    link_collector = (
+                        DB.FilteredElementCollector(link_doc)
+                        .WhereElementIsNotElementType()
+                        .ToElements()
+                    )
+                    for ele in link_collector:
+                        process_element(ele)
+            except Exception:
+                pass
     except Exception:
         pass
         
