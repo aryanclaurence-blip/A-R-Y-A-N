@@ -692,9 +692,9 @@ def get_range_values_multi(
         for name in additional_param_names:
             if name:
                 parts.append(u"{} = {}".format(name, get_param_value_safe(ele, name, ele_doc)))
-        if link_name:
-            parts.append(u"Link = {}".format(link_name))
-
+        # Do not include the link name in the color key: matching parameter
+        # values from host and linked documents should receive the same color,
+        # just like the original ColorSplasher groups host elements.
         compound_key = DELIMITER.join(parts)
 
         raw_param = None
@@ -730,6 +730,12 @@ def get_range_values_multi(
                 match.ele_id.Add(ele.Id)
             except Exception:
                 match.ele_id.append(ele.Id)
+            if link_name:
+                try:
+                    match._linked_element_id_ints.add(get_element_int_id(ele.Id))
+                    match._linked_element_link_names.add(link_name)
+                except Exception:
+                    pass
             if raw_param.StorageType == _DB.StorageType.Double:
                 match.values_double.append(raw_param.AsDouble())
         else:
@@ -749,6 +755,11 @@ def get_range_values_multi(
                 r, g, b,
                 link_name=link_name
             )
+            vi._linked_element_id_ints = set()
+            vi._linked_element_link_names = set()
+            if link_name:
+                vi._linked_element_id_ints.add(get_element_int_id(ele.Id))
+                vi._linked_element_link_names.add(link_name)
             list_values.append(vi)
 
     none_vals = [x for x in list_values if x.value == 'None']
@@ -948,6 +959,7 @@ def get_range_values_heatmap(
         vi.values_double = []
         vi.link_name = ''
         vi._linked_element_id_ints = set()
+        vi._linked_element_link_names = set()
         vi.ele_id = vi_ele_id
         try:
             from pyrevit.framework import Drawing
@@ -968,6 +980,7 @@ def get_range_values_heatmap(
                     if link_name:
                         try:
                             vi._linked_element_id_ints.add(get_element_int_id(ele_id))
+                            vi._linked_element_link_names.add(link_name)
                         except Exception:
                             pass
                     vi.values_double.append(f_val)

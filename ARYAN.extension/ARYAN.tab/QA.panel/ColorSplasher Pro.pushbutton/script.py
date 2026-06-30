@@ -56,6 +56,7 @@ try:
         get_range_values_heatmap,
         get_loaded_links,
         collect_elements_from_link,
+        get_categories_from_link,
         filter_value_items,
         sort_value_items,
         get_item_count,
@@ -71,6 +72,27 @@ except Exception as _pro_import_err:
     _PRO_ENGINE_OK = False
 
 logger = get_logger()  # Ctrl+click for debug
+
+
+def _restore_window_position_safe(window):
+    """Restore saved pyRevit window position when supported by this pyRevit build."""
+    try:
+        restore_position = getattr(pyrevit_script, "restore_window_position", None)
+        if restore_position:
+            restore_position(window)
+    except Exception as ex:
+        logger.debug("Unable to restore window position: %s", str(ex))
+
+
+def _save_window_position_safe(window):
+    """Save pyRevit window position when supported by this pyRevit build."""
+    try:
+        save_position = getattr(pyrevit_script, "save_window_position", None)
+        if save_position:
+            save_position(window)
+    except Exception as ex:
+        logger.debug("Unable to save window position: %s", str(ex))
+
 
 # ---------------------------------------------------------------------------
 # UNCHANGED: Categories to exclude (from original script)
@@ -1188,7 +1210,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
         # Setup
         self.Closed += self.closed
-        pyrevit_script.restore_window_position(self)
+        _restore_window_position_safe(self)
         self._setup_ui()
         self._initialized = True
 
@@ -1311,6 +1333,85 @@ class ColorSplasherProWindow(forms.WPFWindow):
         except Exception:
             pass
 
+
+    def _build_category_table(self, categories):
+        """Rebuild the category combo table from CategoryInfo objects."""
+        self.categs = categories
+        self.table_data = DataTable("Data")
+        self.table_data.Columns.Add("Key", System.String)
+        self.table_data.Columns.Add("Value", System.Object)
+        self.table_data.Rows.Add("Select Category", 0)
+        for cat_info in categories:
+            self.table_data.Rows.Add(cat_info.name, cat_info)
+        self._categories.ItemsSource = self.table_data.DefaultView
+        self._categories.SelectedIndex = 0 if self._categories.Items.Count > 0 else -1
+
+    def _collect_categories_for_current_source(self):
+        """Return host/link categories for the active source selector."""
+        doc = revit.DOCS.doc
+        include_links = (
+            hasattr(self, "_radio_links")
+            and (self._radio_links.IsChecked or self._radio_all.IsChecked)
+        )
+        links_only = hasattr(self, "_radio_links") and self._radio_links.IsChecked
+
+        categories_by_id = {}
+        if not links_only:
+            for cat_info in get_used_categories_parameters(CAT_EXCLUDED, self.crt_view, doc):
+                categories_by_id[cat_info.int_id] = cat_info
+
+        if include_links:
+            for li in self._get_selected_link_infos():
+                try:
+                    link_doc = li.link_doc
+                    for cat in link_doc.Settings.Categories:
+                        try:
+                            if cat.CategoryType != DB.CategoryType.Model:
+                                continue
+                            cat_id = get_element_int_id(cat.Id)
+                            if cat_id in CAT_EXCLUDED or cat_id >= -1:
+                                continue
+                            if cat_id not in categories_by_id:
+                                categories_by_id[cat_id] = CategoryInfo(cat, [])
+                        except Exception:
+                            continue
+                except Exception:
+                    # Fall back to element-discovered categories when Settings is unavailable.
+                    try:
+                        for cat_name, cat_id in get_categories_from_link(li, CAT_EXCLUDED):
+                            if cat_id not in categories_by_id:
+                                mock_cat = type("LinkedCategory", (), {})()
+                                mock_cat.Name = cat_name
+                                mock_cat.Id = DB.ElementId(cat_id)
+                                categories_by_id[cat_id] = CategoryInfo(mock_cat, [])
+                    except Exception:
+                        continue
+
+        return sorted(categories_by_id.values(), key=lambda x: x.name)
+
+    def _refresh_categories_for_current_source(self):
+        """Refresh category list when switching host/link/all source modes."""
+        try:
+            current_id = None
+            row = self._get_category_row(self._categories.SelectedItem, self._categories.SelectedIndex)
+            if row is not None and row["Value"] != 0:
+                current_id = row["Value"].int_id
+
+            categories = self._collect_categories_for_current_source()
+            self._build_category_table(categories)
+
+            if current_id is not None:
+                for idx in range(self.table_data.Rows.Count):
+                    try:
+                        val = self.table_data.Rows[idx]["Value"]
+                        if val != 0 and val.int_id == current_id:
+                            self._categories.SelectedIndex = idx
+                            break
+                    except Exception:
+                        continue
+        except Exception as ex:
+            logger.debug("Failed to refresh categories for source: %s", str(ex))
+
     def _refresh_secondary_tertiary(self):
         """Refresh dynamic parameter combos from current category params."""
         try:
@@ -1355,7 +1456,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
     def closed(self, sender, args):
         try:
-            pyrevit_script.save_window_position(self)
+            _save_window_position_safe(self)
         except Exception:
             pass
 
@@ -1615,6 +1716,11 @@ class ColorSplasherProWindow(forms.WPFWindow):
             matches = list(getattr(self, "_link_elements_registry", {}).get(id_int, []))
             if not matches or value_item is None:
                 return matches
+            link_names = getattr(value_item, "_linked_element_link_names", None)
+            if link_names:
+                filtered = [m for m in matches if m.get("link_name") in link_names]
+                if filtered:
+                    return filtered
             link_name = getattr(value_item, "link_name", None)
             if link_name:
                 filtered = [m for m in matches if m.get("link_name") == link_name]
@@ -1965,16 +2071,19 @@ class ColorSplasherProWindow(forms.WPFWindow):
             self._collect_value_items()
 
     def on_source_changed(self, sender, e):
-        """Called when link/source radio selection changes."""
+        """Called when host/link/all source selection changes."""
         if not getattr(self, "_initialized", False):
             return
+        self._update_mode_ui()
+        self._refresh_categories_for_current_source()
         if self._categories.SelectedIndex > 0:
             self.update_filter(self._categories, None)
 
     def on_link_selection_changed(self, sender, e):
-        """Refresh parameters/values when the specific link selector changes."""
+        """Refresh categories/parameters/values when the specific link selector changes."""
         if not getattr(self, "_initialized", False):
             return
+        self._refresh_categories_for_current_source()
         if self._categories.SelectedIndex > 0:
             self.update_filter(self._categories, None)
 
