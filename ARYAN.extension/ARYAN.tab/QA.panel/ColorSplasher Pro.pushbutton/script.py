@@ -967,7 +967,6 @@ def create_link_overlay_directshape(doc, view, category_info, link_meta, overrid
     except Exception:
         pass
     ds.SetShape(GenericList[DB.GeometryObject](transformed_geometry))
-    view.SetElementOverrides(ds.Id, overrides)
     return ds.Id
 
 
@@ -1081,6 +1080,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                             ogs.SetSurfaceBackgroundPatternId(solid_fill_id)
                             ogs.SetCutBackgroundPatternId(solid_fill_id)
                             
+                    ds_overrides_to_apply = []
                     for idt in vi.ele_id:
                         link_matches = wndw._get_link_registry_matches(idt, vi)
 
@@ -1092,6 +1092,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                                     )
                                     if overlay_id is not None:
                                         wndw._temp_direct_shapes.append(overlay_id)
+                                        ds_overrides_to_apply.append((overlay_id, ogs))
                                 except Exception as ds_ex:
                                     logger.debug(
                                         "Failed to create linked-element overlay: %s",
@@ -1101,6 +1102,14 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                             # Host element
                             try:
                                 view.SetElementOverrides(idt, ogs)
+                            except Exception:
+                                pass
+
+                    if ds_overrides_to_apply:
+                        new_doc.Regenerate()
+                        for ds_id, ds_ogs in ds_overrides_to_apply:
+                            try:
+                                view.SetElementOverrides(ds_id, ds_ogs)
                             except Exception:
                                 pass
 
@@ -3175,10 +3184,9 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
     # 1. Find BuiltInCategory
     bic = None
     try:
-        for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
-            if category_int_id == int(sample_bic):
-                bic = sample_bic
-                break
+        import System
+        if System.Enum.IsDefined(DB.BuiltInCategory, category_int_id):
+            bic = System.Enum.ToObject(DB.BuiltInCategory, category_int_id)
     except Exception:
         pass
             
@@ -3523,7 +3531,7 @@ def _get_custom_bound_parameters(doc, category_int_id):
                 binding = doc.ParameterBindings.Item[pe.GetDefinition()]
                 if binding and hasattr(binding, "Categories"):
                     for cat in binding.Categories:
-                        if cat.Id.IntegerValue == category_int_id:
+                        if get_element_int_id(cat.Id) == category_int_id:
                             results.append((pe.Name, pe.Id))
                             break
             except Exception:
@@ -3544,7 +3552,14 @@ def _load_params_on_demand(doc, view, category_int_id):
         builtins = _get_common_builtin_parameters(category_int_id)
         for name, bip in builtins:
             try:
-                pid = DB.ElementId(bip)
+                try:
+                    pid = DB.ElementId(bip)
+                except Exception:
+                    try:
+                        import System
+                        pid = DB.ElementId(System.Convert.ToInt32(bip))
+                    except Exception:
+                        pid = DB.ElementId(int(bip))
                 mock_par = MockParameter(name, pid, is_builtin=True)
                 unique_params[name] = ParameterInfo(0, mock_par)
             except Exception:
