@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-ARYAN — ColorSplasher Pro
-script.py — pyRevit entry point.
+ARYAN - ColorSplasher Pro
+script.py - pyRevit entry point.
 
 Upgrade of pyRevit ColorSplasher by BIMOne Inc. (MIT 2021).
 All original functionality is preserved and intact.
@@ -128,7 +128,7 @@ LEGACY_LINK_TEMP_DIRECTSHAPE_NAME = "ColorSplasherPro_Temp"
 
 
 # ===========================================================================
-# UNCHANGED: Original external event handlers — SubscribeView, ApplyColors,
+# UNCHANGED: Original external event handlers - SubscribeView, ApplyColors,
 #            ResetColors, CreateLegend, CreateFilters
 #            (no renames, no modifications, verbatim from ColorSplasher)
 # ===========================================================================
@@ -971,7 +971,7 @@ def create_link_overlay_directshape(doc, view, category_info, link_meta, overrid
 
 
 # ===========================================================================
-# NEW: ApplyColorsPro — multi-param / heat-map / link-aware color application
+# NEW: ApplyColorsPro - multi-param / heat-map / link-aware color application
 # ===========================================================================
 
 class ApplyColorsPro(UI.IExternalEventHandler):
@@ -1122,7 +1122,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
 
 
 # ===========================================================================
-# MAIN WINDOW — ColorSplasherProWindow
+# MAIN WINDOW - ColorSplasherProWindow
 # Extends the original architecture with all new features.
 # Original event handler names preserved.
 # ===========================================================================
@@ -1531,7 +1531,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             pass
 
     # ------------------------------------------------------------------
-    # Data row accessor (from original — unchanged)
+    # Data row accessor (from original - unchanged)
     # ------------------------------------------------------------------
 
     def _get_data_row_from_item(self, item, item_index=None, table=None):
@@ -1593,7 +1593,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         return self._get_data_row_from_item(item, item_index, self._table_data_3)
 
     # ------------------------------------------------------------------
-    # Placeholder visibility (from original — unchanged)
+    # Placeholder visibility (from original - unchanged)
     # ------------------------------------------------------------------
 
     def _update_placeholder_visibility(self):
@@ -1890,7 +1890,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             external_event_trace()
 
     # ------------------------------------------------------------------
-    # UNCHANGED: Original event handler — check_item (parameter selection)
+    # UNCHANGED: Original event handler - check_item (parameter selection)
     # ------------------------------------------------------------------
 
     def check_item(self, sender, e):
@@ -1995,7 +1995,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         return []
 
     # ------------------------------------------------------------------
-    # UNCHANGED: Original event handler — update_filter (category change)
+    # UNCHANGED: Original event handler - update_filter (category change)
     # ------------------------------------------------------------------
 
     def update_filter(self, sender, e):
@@ -2581,7 +2581,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._shift_pressed_on_click = shift_from_event or shift_from_keyboard
 
     def list_selected_index_changed(self, sender, e):
-        """Handle ListBox selection change — colour pick or element selection."""
+        """Handle ListBox selection change - colour pick or element selection."""
         if not getattr(self, "_initialized", False):
             return
         if sender.SelectedIndex == -1:
@@ -3193,7 +3193,7 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
     if bic is None:
         return []
         
-    # 2. Collect host elements — use ToElements() for safe materialization, slice to 50
+    # 2. Collect host elements - use ToElements() for safe materialization, slice to 50
     elements = []
     if include_host:
         try:
@@ -3588,7 +3588,7 @@ def _load_params_on_demand(doc, view, category_int_id):
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
     """
     Return sorted list of CategoryInfo for all model categories.
-    Uses Document.Settings.Categories — NO element scanning at all.
+    Uses Document.Settings.Categories - NO element scanning at all.
     This is completely crash-safe for any model size.
     Parameters are loaded on-demand when user selects a category.
     """
@@ -3608,7 +3608,7 @@ def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
                 cat_id = get_element_int_id(cat.Id)
                 if cat_id in cat_exc or cat_id >= -1:
                     continue
-                # Empty par list — loaded on-demand when user selects this category
+                # Empty par list - loaded on-demand when user selects this category
                 result.append(CategoryInfo(cat, []))
             except Exception:
                 continue
