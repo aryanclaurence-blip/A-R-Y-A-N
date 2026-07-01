@@ -1,4 +1,4 @@
-# -- coding: utf-8 --
+# -*- coding: utf-8 -*-
 """
 ARYAN — ColorSplasher Pro
 script.py — pyRevit entry point.
