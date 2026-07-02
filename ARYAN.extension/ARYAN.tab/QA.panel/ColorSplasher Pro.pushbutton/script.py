@@ -1,7 +1,7 @@
-# -- coding: utf-8 --
+# -*- coding: utf-8 -*-
 """
-ARYAN — ColorSplasher Pro
-script.py — pyRevit entry point.
+ARYAN - ColorSplasher Pro
+script.py - pyRevit entry point.
 
 Upgrade of pyRevit ColorSplasher by BIMOne Inc. (MIT 2021).
 All original functionality is preserved and intact.
@@ -128,7 +128,7 @@ LEGACY_LINK_TEMP_DIRECTSHAPE_NAME = "ColorSplasherPro_Temp"
 
 
 # ===========================================================================
-# UNCHANGED: Original external event handlers — SubscribeView, ApplyColors,
+# UNCHANGED: Original external event handlers - SubscribeView, ApplyColors,
 #            ResetColors, CreateLegend, CreateFilters
 #            (no renames, no modifications, verbatim from ColorSplasher)
 # ===========================================================================
@@ -967,12 +967,11 @@ def create_link_overlay_directshape(doc, view, category_info, link_meta, overrid
     except Exception:
         pass
     ds.SetShape(GenericList[DB.GeometryObject](transformed_geometry))
-    view.SetElementOverrides(ds.Id, overrides)
     return ds.Id
 
 
 # ===========================================================================
-# NEW: ApplyColorsPro — multi-param / heat-map / link-aware color application
+# NEW: ApplyColorsPro - multi-param / heat-map / link-aware color application
 # ===========================================================================
 
 class ApplyColorsPro(UI.IExternalEventHandler):
@@ -1081,6 +1080,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                             ogs.SetSurfaceBackgroundPatternId(solid_fill_id)
                             ogs.SetCutBackgroundPatternId(solid_fill_id)
                             
+                    ds_overrides_to_apply = []
                     for idt in vi.ele_id:
                         link_matches = wndw._get_link_registry_matches(idt, vi)
 
@@ -1092,6 +1092,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                                     )
                                     if overlay_id is not None:
                                         wndw._temp_direct_shapes.append(overlay_id)
+                                        ds_overrides_to_apply.append((overlay_id, ogs))
                                 except Exception as ds_ex:
                                     logger.debug(
                                         "Failed to create linked-element overlay: %s",
@@ -1104,6 +1105,14 @@ class ApplyColorsPro(UI.IExternalEventHandler):
                             except Exception:
                                 pass
 
+                    if ds_overrides_to_apply:
+                        new_doc.Regenerate()
+                        for ds_id, ds_ogs in ds_overrides_to_apply:
+                            try:
+                                view.SetElementOverrides(ds_id, ds_ogs)
+                            except Exception:
+                                pass
+
             wndw._set_status("Colors applied", success=True)
         except Exception:
             external_event_trace()
@@ -1113,7 +1122,7 @@ class ApplyColorsPro(UI.IExternalEventHandler):
 
 
 # ===========================================================================
-# MAIN WINDOW — ColorSplasherProWindow
+# MAIN WINDOW - ColorSplasherProWindow
 # Extends the original architecture with all new features.
 # Original event handler names preserved.
 # ===========================================================================
@@ -1522,7 +1531,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             pass
 
     # ------------------------------------------------------------------
-    # Data row accessor (from original — unchanged)
+    # Data row accessor (from original - unchanged)
     # ------------------------------------------------------------------
 
     def _get_data_row_from_item(self, item, item_index=None, table=None):
@@ -1584,7 +1593,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         return self._get_data_row_from_item(item, item_index, self._table_data_3)
 
     # ------------------------------------------------------------------
-    # Placeholder visibility (from original — unchanged)
+    # Placeholder visibility (from original - unchanged)
     # ------------------------------------------------------------------
 
     def _update_placeholder_visibility(self):
@@ -1881,7 +1890,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
             external_event_trace()
 
     # ------------------------------------------------------------------
-    # UNCHANGED: Original event handler — check_item (parameter selection)
+    # UNCHANGED: Original event handler - check_item (parameter selection)
     # ------------------------------------------------------------------
 
     def check_item(self, sender, e):
@@ -1986,7 +1995,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         return []
 
     # ------------------------------------------------------------------
-    # UNCHANGED: Original event handler — update_filter (category change)
+    # UNCHANGED: Original event handler - update_filter (category change)
     # ------------------------------------------------------------------
 
     def update_filter(self, sender, e):
@@ -2572,7 +2581,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._shift_pressed_on_click = shift_from_event or shift_from_keyboard
 
     def list_selected_index_changed(self, sender, e):
-        """Handle ListBox selection change — colour pick or element selection."""
+        """Handle ListBox selection change - colour pick or element selection."""
         if not getattr(self, "_initialized", False):
             return
         if sender.SelectedIndex == -1:
@@ -3175,17 +3184,16 @@ def collect_parameters_for_category(doc, view, category_int_id, include_links=Fa
     # 1. Find BuiltInCategory
     bic = None
     try:
-        for sample_bic in System.Enum.GetValues(DB.BuiltInCategory):
-            if category_int_id == int(sample_bic):
-                bic = sample_bic
-                break
+        import System
+        if System.Enum.IsDefined(DB.BuiltInCategory, category_int_id):
+            bic = System.Enum.ToObject(DB.BuiltInCategory, category_int_id)
     except Exception:
         pass
             
     if bic is None:
         return []
         
-    # 2. Collect host elements — use ToElements() for safe materialization, slice to 50
+    # 2. Collect host elements - use ToElements() for safe materialization, slice to 50
     elements = []
     if include_host:
         try:
@@ -3523,7 +3531,7 @@ def _get_custom_bound_parameters(doc, category_int_id):
                 binding = doc.ParameterBindings.Item[pe.GetDefinition()]
                 if binding and hasattr(binding, "Categories"):
                     for cat in binding.Categories:
-                        if cat.Id.IntegerValue == category_int_id:
+                        if get_element_int_id(cat.Id) == category_int_id:
                             results.append((pe.Name, pe.Id))
                             break
             except Exception:
@@ -3544,7 +3552,14 @@ def _load_params_on_demand(doc, view, category_int_id):
         builtins = _get_common_builtin_parameters(category_int_id)
         for name, bip in builtins:
             try:
-                pid = DB.ElementId(bip)
+                try:
+                    pid = DB.ElementId(bip)
+                except Exception:
+                    try:
+                        import System
+                        pid = DB.ElementId(System.Convert.ToInt32(bip))
+                    except Exception:
+                        pid = DB.ElementId(int(bip))
                 mock_par = MockParameter(name, pid, is_builtin=True)
                 unique_params[name] = ParameterInfo(0, mock_par)
             except Exception:
@@ -3573,7 +3588,7 @@ def _load_params_on_demand(doc, view, category_int_id):
 def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
     """
     Return sorted list of CategoryInfo for all model categories.
-    Uses Document.Settings.Categories — NO element scanning at all.
+    Uses Document.Settings.Categories - NO element scanning at all.
     This is completely crash-safe for any model size.
     Parameters are loaded on-demand when user selects a category.
     """
@@ -3593,7 +3608,7 @@ def get_used_categories_parameters(cat_exc, acti_view, doc_param=None):
                 cat_id = get_element_int_id(cat.Id)
                 if cat_id in cat_exc or cat_id >= -1:
                     continue
-                # Empty par list — loaded on-demand when user selects this category
+                # Empty par list - loaded on-demand when user selects this category
                 result.append(CategoryInfo(cat, []))
             except Exception:
                 continue

@@ -1,4 +1,4 @@
-# -- coding: utf-8 --
+# -*- coding: utf-8 -*-
 """
 ColorSplasher Pro Engine
 ARYAN extension upgrade of pyRevit ColorSplasher.
