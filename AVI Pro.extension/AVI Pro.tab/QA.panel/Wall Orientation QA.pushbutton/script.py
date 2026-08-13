@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-ARYAN extension — Wall Orientation QA feature.
+AVI Pro extension — Wall Orientation QA feature.
 pyRevit entry script.
 """
 
@@ -8,8 +8,8 @@ import os
 import sys
 
 __title__ = "Wall Orientation QA"
-__author__ = "ARYAN"
-__doc__ = "ARYAN feature: enterprise-grade wall orientation validation in the active view."
+__author__ = "AVI Pro"
+__doc__ = "AVI Pro feature: enterprise-grade wall orientation validation in the active view."
 
 BUNDLE_DIR = os.path.dirname(__file__)
 
