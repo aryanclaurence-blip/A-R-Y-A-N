@@ -1,6 +1,6 @@
 # -- coding: utf-8 --
 """
-ARYAN — ColorSplasher Pro
+AVI Pro — ColorSplasher Pro
 script.py — pyRevit entry point.
 
 Upgrade of pyRevit ColorSplasher by BIMOne Inc. (MIT 2021).
@@ -1574,6 +1574,17 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     return source_table.Rows[item_index]
             except Exception:
                 pass
+
+        if source_table is not None:
+            try:
+                for row in source_table.Rows:
+                    try:
+                        if row["Value"] == item or row["Key"] == item:
+                            return row
+                    except Exception:
+                        continue
+            except Exception:
+                pass
         return None
 
     def _get_category_row(self, item=None, item_index=None):
@@ -1996,10 +2007,12 @@ class ColorSplasherProWindow(forms.WPFWindow):
         if not getattr(self, "_initialized", False):
             return
         try:
-            if sender.SelectedItem is None:
+            sel_cat_row = sender.SelectedItem
+            if e is not None and hasattr(e, "AddedItems") and e.AddedItems.Count > 0:
+                sel_cat_row = e.AddedItems[0]
+            if sel_cat_row is None:
                 return
 
-            sel_cat_row = sender.SelectedItem
             row = self._get_data_row_from_item(sel_cat_row, sender.SelectedIndex, self.table_data)
             if row is None:
                 return
@@ -2012,7 +2025,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
             self._table_data_2.Rows.Add("Select Parameter", 0)
 
-            if sel_cat != 0 and sender.SelectedIndex != 0:
+            if sel_cat != 0:
                 # Load parameters from the currently selected source.
                 params_for_source = self._load_parameters_for_current_source(sel_cat)
 
@@ -2023,6 +2036,10 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     self._list_box1.SelectedIndex = 0
                     self.list_box2.ItemsSource = self._table_data_3.DefaultView
                     self._update_placeholder_visibility()
+                    self._set_status(
+                        "No parameters found for {} in the current source/scope.".format(row["Key"]),
+                        success=False
+                    )
                     return
 
                 names_par = [x.name for x in params_for_source]
@@ -2036,6 +2053,10 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 self.list_box2.ItemsSource = self._table_data_3.DefaultView
                 self._update_placeholder_visibility()
                 self._refresh_secondary_tertiary()
+                self._set_status(
+                    "Category selected: {}. Now choose a parameter.".format(row["Key"]),
+                    success=True
+                )
             else:
                 self._all_parameters = []
                 self._list_box1.ItemsSource = self._table_data_2.DefaultView

@@ -1,0 +1,6 @@
+name: AVI Pro
+type: extension
+description: AVI Pro is a specialized BIM automation suite for architectural and construction workflows. Fewer clicks. Faster models.
+author: AVI Pro
+min_revit_version: 2020
+max_revit_version: 2028

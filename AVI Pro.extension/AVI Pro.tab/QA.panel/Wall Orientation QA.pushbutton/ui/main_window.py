@@ -129,7 +129,7 @@ class WallOrientationQAWindow(forms.WPFWindow):
                     VersionService.get_supported_range_label()
                 )
             )
-        self._logger.info("ARYAN — Wall Orientation QA initialized.")
+        self._logger.info("AVI Pro — Wall Orientation QA initialized.")
         self._logger.info("Active view: {0}".format(
             ViewService.get_view_name(ViewService.get_active_view(self._document, self._uidoc))
         ))
@@ -137,7 +137,7 @@ class WallOrientationQAWindow(forms.WPFWindow):
         self.set_status("Ready", success=True)
 
     def _on_window_closed(self, sender, args):
-        self._logger.info("ARYAN — Wall Orientation QA closed.")
+        self._logger.info("AVI Pro — Wall Orientation QA closed.")
 
     def _on_size_changed(self, sender, args):
         if self.ActualWidth < 860:
@@ -374,7 +374,7 @@ class WallOrientationQAWindow(forms.WPFWindow):
         try:
             MessageBox.Show(
                 message,
-                "ARYAN — Wall Orientation QA",
+                "AVI Pro — Wall Orientation QA",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning
             )

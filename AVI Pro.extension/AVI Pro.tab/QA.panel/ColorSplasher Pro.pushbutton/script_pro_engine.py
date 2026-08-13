@@ -1,7 +1,7 @@
 # -- coding: utf-8 --
 """
 ColorSplasher Pro Engine
-ARYAN extension upgrade of pyRevit ColorSplasher.
+AVI Pro extension upgrade of pyRevit ColorSplasher.
 
 Contains:
   - Compatibility wrappers (Revit 2019-2027, IronPython)
@@ -567,7 +567,7 @@ def export_to_json(items, filepath, category_name, param_name, view_name):
                 'parameter': param_name,
                 'view': view_name,
                 'date': date_str,
-                'tool': 'ARYAN ColorSplasher Pro'
+                'tool': 'AVI Pro ColorSplasher Pro'
             },
             'entries': []
         }
