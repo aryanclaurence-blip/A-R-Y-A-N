@@ -1,7 +1,7 @@
 # -- coding: utf-8 --
 """
 ColorSplasher Pro Engine
-ARYAN extension upgrade of pyRevit ColorSplasher.
+AVI Pro extension upgrade of pyRevit ColorSplasher.
 
 Contains:
   - Compatibility wrappers (Revit 2019-2027, IronPython)
@@ -146,17 +146,48 @@ def get_ordered_parameters_safe(element):
     except Exception:
         return []
 
-def get_param_value_safe(element, param_name, doc):
+
+def parameter_matches(candidate, parameter_info):
+    """Match a Revit parameter to a ParameterInfo identity before falling back to name."""
+    if candidate is None or parameter_info is None:
+        return False
+    try:
+        wanted = getattr(parameter_info, "identity", None)
+        if wanted:
+            kind, value, param_type = wanted
+            if kind == "builtin":
+                try:
+                    return int(candidate.Definition.BuiltInParameter) == value
+                except Exception:
+                    return False
+            if kind == "parameter_id":
+                try:
+                    return get_element_int_id(candidate.Id) == value
+                except Exception:
+                    pass
+            if kind == "definition_id":
+                try:
+                    return get_element_int_id(candidate.Definition.Id) == value
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        return strip_accents(candidate.Definition.Name) == strip_accents(parameter_info.par.Name)
+    except Exception:
+        return False
+
+def get_param_value_safe(element, param_ref, doc):
     """
     Read parameter value from element (instance first, then type).
-    Returns string representation or 'None'.
+    Accepts a ParameterInfo identity object or a legacy parameter name string.
     """
     try:
-        from pyrevit import DB as _DB
+        wanted_name = getattr(getattr(param_ref, "par", None), "Name", param_ref)
         # Instance parameters
         for pr in get_ordered_parameters_safe(element):
             try:
-                if strip_accents(pr.Definition.Name) == strip_accents(param_name):
+                if parameter_matches(pr, param_ref) or strip_accents(pr.Definition.Name) == strip_accents(wanted_name):
                     return _read_single_param(pr, doc)
             except Exception:
                 continue
@@ -165,7 +196,7 @@ def get_param_value_safe(element, param_name, doc):
         if typ:
             for pr in get_ordered_parameters_safe(typ):
                 try:
-                    if strip_accents(pr.Definition.Name) == strip_accents(param_name):
+                    if parameter_matches(pr, param_ref) or strip_accents(pr.Definition.Name) == strip_accents(wanted_name):
                         return _read_single_param(pr, doc)
                 except Exception:
                     continue
@@ -567,7 +598,7 @@ def export_to_json(items, filepath, category_name, param_name, view_name):
                 'parameter': param_name,
                 'view': view_name,
                 'date': date_str,
-                'tool': 'ARYAN ColorSplasher Pro'
+                'tool': 'AVI Pro ColorSplasher Pro'
             },
             'entries': []
         }
@@ -686,7 +717,7 @@ def get_range_values_multi(
     for (ele, link_name) in all_element_pairs:
         ele_doc = ele.Document if hasattr(ele, 'Document') else doc
 
-        primary_val = get_param_value_safe(ele, primary_param_name, ele_doc)
+        primary_val = get_param_value_safe(ele, primary_param_info, ele_doc)
 
         parts = [u"{} = {}".format(primary_param_name, primary_val)]
         for name in additional_param_names:
@@ -700,7 +731,7 @@ def get_range_values_multi(
         raw_param = None
         for pr in get_ordered_parameters_safe(ele):
             try:
-                if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
+                if parameter_matches(pr, primary_param_info):
                     raw_param = pr
                     break
             except Exception:
@@ -710,7 +741,7 @@ def get_range_values_multi(
                 typ = ele_doc.GetElement(ele.GetTypeId())
                 if typ:
                     for pr in get_ordered_parameters_safe(typ):
-                        if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
+                        if parameter_matches(pr, primary_param_info):
                             raw_param = pr
                             break
             except Exception:
@@ -927,7 +958,7 @@ def get_range_values_heatmap(
 
     for (ele, link_name) in all_element_pairs:
         ele_doc = ele.Document if hasattr(ele, 'Document') else doc
-        val_str = get_param_value_safe(ele, primary_param_name, ele_doc)
+        val_str = get_param_value_safe(ele, primary_param_info, ele_doc)
         f = try_parse_float(val_str)
         if f is not None:
             numeric_pairs.append((ele.Id, f, link_name))

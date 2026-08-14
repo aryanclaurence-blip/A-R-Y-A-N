@@ -55,7 +55,7 @@ class ExportManager(object):
         dialog.Title = "Export Invalid Walls"
         dialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
         dialog.DefaultExt = ".csv"
-        dialog.FileName = "ARYAN_WallOrientationQA_InvalidWalls.csv"
+        dialog.FileName = "AVI Pro_WallOrientationQA_InvalidWalls.csv"
         dialog.AddExtension = True
         dialog.OverwritePrompt = True
 

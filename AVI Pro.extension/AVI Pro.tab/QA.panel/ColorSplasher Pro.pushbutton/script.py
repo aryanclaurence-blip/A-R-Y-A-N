@@ -1,6 +1,6 @@
 # -- coding: utf-8 --
 """
-ARYAN — ColorSplasher Pro
+AVI Pro — ColorSplasher Pro
 script.py — pyRevit entry point.
 
 Upgrade of pyRevit ColorSplasher by BIMOne Inc. (MIT 2021).
@@ -215,33 +215,14 @@ class ApplyColors(UI.IExternalEventHandler):
 
             solid_fill_id = solid_fill_pattern_id()
 
-            if wndw._categories.SelectedItem is None:
+            sel_cat = getattr(wndw, "selected_category", None)
+            checked_param = getattr(wndw, "selected_parameter", None)
+            if sel_cat is None or getattr(wndw, "selected_category_id", None) is None:
+                forms.alert("Please select a category.", title="ColorSplasher Pro")
                 return
-            sel_cat_row = wndw._categories.SelectedItem
-            row = wndw._get_category_row(sel_cat_row, wndw._categories.SelectedIndex)
-            if row is None:
+            if checked_param is None or getattr(wndw, "selected_parameter_identity", None) is None:
+                forms.alert("Please select a parameter.", title="ColorSplasher Pro")
                 return
-            sel_cat = row["Value"]
-            if sel_cat == 0:
-                return
-
-            if (
-                wndw._list_box1.SelectedIndex == -1
-                or wndw._list_box1.SelectedIndex == 0
-            ):
-                if wndw._list_box1.SelectedIndex == 0:
-                    sel_param_row = wndw._list_box1.SelectedItem
-                    if sel_param_row is not None:
-                        param_row = wndw._get_parameter_row(sel_param_row, 0)
-                        if param_row is not None and param_row["Value"] == 0:
-                            return
-                return
-
-            sel_param_row = wndw._list_box1.SelectedItem
-            param_row = wndw._get_parameter_row(sel_param_row, wndw._list_box1.SelectedIndex)
-            if param_row is None:
-                return
-            checked_param = param_row["Value"]
 
             refreshed_values = get_range_values(sel_cat, checked_param, view)
 
@@ -869,6 +850,56 @@ class ParameterInfo:
         self.rl_par = para
         self.par = para.Definition
         self.name = strip_accents(para.Definition.Name)
+        self.identity = self._build_identity(para)
+
+    def _build_identity(self, para):
+        """Return a stable parameter identity without using display text as state."""
+        try:
+            bip = para.Definition.BuiltInParameter
+            if bip != DB.BuiltInParameter.INVALID:
+                return ("builtin", int(bip), self.param_type)
+        except Exception:
+            pass
+        try:
+            return ("parameter_id", get_element_int_id(para.Id), self.param_type)
+        except Exception:
+            pass
+        try:
+            return ("definition_id", get_element_int_id(para.Definition.Id), self.param_type)
+        except Exception:
+            pass
+        return ("definition_name", strip_accents(para.Definition.Name), self.param_type)
+
+
+def _parameter_matches(candidate, parameter_info):
+    """Return True when a Revit parameter matches the selected ParameterInfo identity."""
+    if candidate is None or parameter_info is None:
+        return False
+    try:
+        wanted = getattr(parameter_info, "identity", None)
+        if wanted:
+            kind, value, param_type = wanted
+            if kind == "builtin":
+                try:
+                    return int(candidate.Definition.BuiltInParameter) == value
+                except Exception:
+                    return False
+            if kind == "parameter_id":
+                try:
+                    return get_element_int_id(candidate.Id) == value
+                except Exception:
+                    pass
+            if kind == "definition_id":
+                try:
+                    return get_element_int_id(candidate.Definition.Id) == value
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        return strip_accents(candidate.Definition.Name) == strip_accents(parameter_info.par.Name)
+    except Exception:
+        return False
 
 
 class CategoryInfo:
@@ -1022,15 +1053,10 @@ class ApplyColorsPro(UI.IExternalEventHandler):
             if not all_values:
                 return
 
-            # Get selected category
-            sel_cat_row = wndw._categories.SelectedItem
-            if sel_cat_row is None:
-                return
-            cat_row = wndw._get_category_row(sel_cat_row, wndw._categories.SelectedIndex)
-            if cat_row is None:
-                return
-            sel_cat = cat_row["Value"]
-            if sel_cat == 0:
+            # Get selected category from synchronized workflow state.
+            sel_cat = getattr(wndw, "selected_category", None)
+            if sel_cat is None:
+                forms.alert("Please select a category.", title="ColorSplasher Pro")
                 return
 
             if not hasattr(wndw, '_temp_direct_shapes'):
@@ -1183,6 +1209,15 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._filtered_parameters = []
         self._all_parameters = []
 
+        # Single source of truth for selected workflow state.
+        self.selected_category = None
+        self.selected_category_id = None
+        self.selected_parameter = None
+        self.selected_parameter_identity = None
+        self.selection_scope = "view"
+        self.selected_model_mode = "host"
+        self.color_mode = "standard"
+
         # Category table
         self.table_data = DataTable("Data")
         self.table_data.Columns.Add("Key", System.String)
@@ -1199,7 +1234,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._table_data_2 = DataTable("Data")
         self._table_data_2.Columns.Add("Key", System.String)
         self._table_data_2.Columns.Add("Value", System.Object)
-        self._table_data_2.Rows.Add("Select Parameter", 0)
+        self._table_data_2.Rows.Add("Select Category First", 0)
 
         # Loaded links cache
         self._loaded_links = []
@@ -1235,6 +1270,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         # Primary param combo
         self._list_box1.ItemsSource = self._table_data_2.DefaultView
         self._list_box1.SelectedIndex = 0
+        self._list_box1.IsEnabled = False
 
         # Initialize dynamic parameter panel
         self._dynamic_rows = []
@@ -1304,6 +1340,66 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 self.Icon = BitmapImage(Uri(icon_path))
         except Exception as icon_ex:
             logger.debug("Failed to load window icon: %s", str(icon_ex))
+
+    def _reset_selection_state(self, reset_category=True):
+        """Clear category/parameter/value state and synchronize dependent controls."""
+        if reset_category:
+            self.selected_category = None
+            self.selected_category_id = None
+        self.selected_parameter = None
+        self.selected_parameter_identity = None
+        self._all_parameters = []
+        self._all_value_items_raw = []
+        self._display_value_items = []
+        self._table_data_2 = DataTable("Data")
+        self._table_data_2.Columns.Add("Key", System.String)
+        self._table_data_2.Columns.Add("Value", System.Object)
+        self._table_data_2.Rows.Add(
+            "Select Category First" if reset_category or self.selected_category is None else "Select Parameter",
+            0
+        )
+        self._table_data_3 = self._create_empty_table()
+        try:
+            self._list_box1.ItemsSource = self._table_data_2.DefaultView
+            self._list_box1.SelectedIndex = 0
+            self._list_box1.IsEnabled = bool(self.selected_category)
+            self.list_box2.ItemsSource = self._table_data_3.DefaultView
+            self._update_placeholder_visibility()
+        except Exception as ex:
+            logger.debug("Failed to reset ColorSplasher state: %s", str(ex))
+
+    def _sync_workflow_state_from_controls(self):
+        """Synchronize source/scope/mode fields from the UI controls."""
+        if hasattr(self, "_radio_scope_whole") and self._radio_scope_whole.IsChecked:
+            self.selection_scope = "whole"
+        elif hasattr(self, "_radio_scope_selected") and self._radio_scope_selected.IsChecked:
+            self.selection_scope = "selected"
+        else:
+            self.selection_scope = "view"
+
+        if hasattr(self, "_radio_links") and self._radio_links.IsChecked:
+            self.selected_model_mode = "links"
+        elif hasattr(self, "_radio_all") and self._radio_all.IsChecked:
+            self.selected_model_mode = "host_links"
+        else:
+            self.selected_model_mode = "host"
+
+        if hasattr(self, "_radio_heatmap") and self._radio_heatmap.IsChecked:
+            self.color_mode = "heatmap"
+        elif hasattr(self, "_radio_multi") and self._radio_multi.IsChecked:
+            self.color_mode = "multi"
+        else:
+            self.color_mode = "standard"
+
+    def _set_selected_category(self, category_info):
+        self.selected_category = category_info
+        self.selected_category_id = getattr(category_info, "int_id", None)
+        self.selected_parameter = None
+        self.selected_parameter_identity = None
+
+    def _set_selected_parameter(self, parameter_info):
+        self.selected_parameter = parameter_info
+        self.selected_parameter_identity = getattr(parameter_info, "identity", None)
 
     def _update_mode_ui(self):
         """Show/hide secondary/tertiary combos and heat map band selector based on mode."""
@@ -1574,6 +1670,17 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     return source_table.Rows[item_index]
             except Exception:
                 pass
+
+        if source_table is not None:
+            try:
+                for row in source_table.Rows:
+                    try:
+                        if row["Value"] == item or row["Key"] == item:
+                            return row
+                    except Exception:
+                        continue
+            except Exception:
+                pass
         return None
 
     def _get_category_row(self, item=None, item_index=None):
@@ -1767,27 +1874,15 @@ class ColorSplasherProWindow(forms.WPFWindow):
             view = self.crt_view
 
             # Get selected category
-            sel_cat_row = self._categories.SelectedItem
-            if sel_cat_row is None or self._categories.SelectedIndex <= 0:
+            self._sync_workflow_state_from_controls()
+            sel_cat = self.selected_category
+            if sel_cat is None or self.selected_category_id is None:
                 self._set_status("Please select a category", success=False)
                 return
-            cat_row = self._get_category_row(sel_cat_row, self._categories.SelectedIndex)
-            if cat_row is None:
-                return
-            sel_cat = cat_row["Value"]
-            if sel_cat == 0:
-                return
 
-            # Get selected primary parameter
-            sel_par_row = self._list_box1.SelectedItem
-            if sel_par_row is None or self._list_box1.SelectedIndex <= 0:
+            sel_param = self.selected_parameter
+            if sel_param is None or self.selected_parameter_identity is None:
                 self._set_status("Please select a parameter", success=False)
-                return
-            par_row = self._get_parameter_row(sel_par_row, self._list_box1.SelectedIndex)
-            if par_row is None:
-                return
-            sel_param = par_row["Value"]
-            if sel_param == 0:
                 return
 
             # Determine link elements to include
@@ -1902,7 +1997,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
     # ------------------------------------------------------------------
 
     def check_item(self, sender, e):
-        """Handle parameter selection change."""
+        """Handle parameter selection change and store real ParameterInfo state."""
         if not getattr(self, "_initialized", False):
             return
         try:
@@ -1910,50 +2005,35 @@ class ColorSplasherProWindow(forms.WPFWindow):
         except Exception:
             pass
 
-        if self._categories.SelectedItem is None:
-            return
-        sel_cat_row = self._categories.SelectedItem
-        from System.Data import DataRowView
-
         try:
-            if isinstance(sel_cat_row, DataRowView):
-                sel_cat = sel_cat_row.Row["Value"]
-            elif hasattr(sel_cat_row, "Row"):
-                sel_cat = sel_cat_row.Row["Value"]
-            else:
-                sel_cat = sel_cat_row["Value"]
-        except Exception as ex:
-            logger.debug("Error getting category: %s", str(ex))
-            return
+            if self.selected_category is None:
+                self._reset_selection_state(reset_category=True)
+                self._set_status("Select Category First", success=False)
+                return
 
-        if sel_cat is None or sel_cat == 0:
-            return
-        if (
-            sender.SelectedIndex == -1
-            or sender.SelectedItem is None
-            or sender.SelectedIndex == 0
-        ):
-            if sender.SelectedIndex == 0:
-                selected_item = sender.SelectedItem
-                if selected_item is not None:
-                    row = self._get_parameter_row(selected_item, 0)
-                    if row is not None and row["Value"] == 0:
-                        self._table_data_3 = self._create_empty_table()
-                        self.list_box2.ItemsSource = self._table_data_3.DefaultView
-                        self._update_placeholder_visibility()
-                        return
-            self._table_data_3 = self._create_empty_table()
-            self.list_box2.ItemsSource = self._table_data_3.DefaultView
-            self._update_placeholder_visibility()
-            return
+            selected_item = sender.SelectedItem
+            if e is not None and hasattr(e, "AddedItems") and e.AddedItems.Count > 0:
+                selected_item = e.AddedItems[0]
 
-        # Delegate to the new unified collector
-        self._collect_value_items()
+            row = self._get_parameter_row(selected_item, sender.SelectedIndex)
+            if row is None or row["Value"] == 0:
+                self._set_selected_parameter(None)
+                self._all_value_items_raw = []
+                self._display_value_items = []
+                self._table_data_3 = self._create_empty_table()
+                self.list_box2.ItemsSource = self._table_data_3.DefaultView
+                self._update_placeholder_visibility()
+                return
 
-        try:
-            self.list_box2.SelectionChanged += self.list_selected_index_changed
+            self._set_selected_parameter(row["Value"])
+            self._collect_value_items()
         except Exception:
-            pass
+            external_event_trace()
+        finally:
+            try:
+                self.list_box2.SelectionChanged += self.list_selected_index_changed
+            except Exception:
+                pass
 
     def _get_selected_link_infos(self):
         """Return the currently selected link(s), or all loaded links."""
@@ -1996,23 +2076,33 @@ class ColorSplasherProWindow(forms.WPFWindow):
         if not getattr(self, "_initialized", False):
             return
         try:
-            if sender.SelectedItem is None:
+            sel_cat_row = sender.SelectedItem
+            if e is not None and hasattr(e, "AddedItems") and e.AddedItems.Count > 0:
+                sel_cat_row = e.AddedItems[0]
+            if sel_cat_row is None:
                 return
 
-            sel_cat_row = sender.SelectedItem
             row = self._get_data_row_from_item(sel_cat_row, sender.SelectedIndex, self.table_data)
             if row is None:
                 return
             sel_cat = row["Value"]
+            if sel_cat == 0:
+                self._reset_selection_state(reset_category=True)
+                self._set_status("Select Category First", success=False)
+                return
+
+            self._set_selected_category(sel_cat)
 
             self._table_data_2 = DataTable("Data")
             self._table_data_2.Columns.Add("Key", System.String)
             self._table_data_2.Columns.Add("Value", System.Object)
             self._table_data_3 = self._create_empty_table()
+            self._all_value_items_raw = []
+            self._display_value_items = []
 
             self._table_data_2.Rows.Add("Select Parameter", 0)
 
-            if sel_cat != 0 and sender.SelectedIndex != 0:
+            if sel_cat != 0:
                 # Load parameters from the currently selected source.
                 params_for_source = self._load_parameters_for_current_source(sel_cat)
 
@@ -2021,8 +2111,13 @@ class ColorSplasherProWindow(forms.WPFWindow):
                     self._table_data_2.Rows.Add("No Parameters Available", 0)
                     self._list_box1.ItemsSource = self._table_data_2.DefaultView
                     self._list_box1.SelectedIndex = 0
+                    self._list_box1.IsEnabled = False
                     self.list_box2.ItemsSource = self._table_data_3.DefaultView
                     self._update_placeholder_visibility()
+                    self._set_status(
+                        "No parameters found for {} in the current source/scope.".format(row["Key"]),
+                        success=False
+                    )
                     return
 
                 names_par = [x.name for x in params_for_source]
@@ -2033,9 +2128,14 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 ]
                 self._list_box1.ItemsSource = self._table_data_2.DefaultView
                 self._list_box1.SelectedIndex = 0
+                self._list_box1.IsEnabled = True
                 self.list_box2.ItemsSource = self._table_data_3.DefaultView
                 self._update_placeholder_visibility()
                 self._refresh_secondary_tertiary()
+                self._set_status(
+                    "Category selected: {}. Now choose a parameter.".format(row["Key"]),
+                    success=True
+                )
             else:
                 self._all_parameters = []
                 self._list_box1.ItemsSource = self._table_data_2.DefaultView
@@ -2308,11 +2408,11 @@ class ColorSplasherProWindow(forms.WPFWindow):
 
     def button_click_set_colors(self, sender, e):
         # Validation before applying colors (Fix #9)
-        if self._categories.SelectedIndex <= 0:
-            forms.alert("Please select a Category first.", title="ColorSplasher Pro")
+        if self.selected_category is None or self.selected_category_id is None:
+            forms.alert("Please select a category.", title="ColorSplasher Pro")
             return
-        if self._list_box1.SelectedIndex <= 0:
-            forms.alert("Please select at least one Parameter.", title="ColorSplasher Pro")
+        if self.selected_parameter is None or self.selected_parameter_identity is None:
+            forms.alert("Please select a parameter.", title="ColorSplasher Pro")
             return
         if self.list_box2.Items.Count <= 0:
             forms.alert("No values found to colorize. Please check your category and parameter selection.", title="ColorSplasher Pro")
@@ -3114,7 +3214,7 @@ def get_range_values(category, param, new_view, scope="view"):
                 params_list = []
             for pr in params_list:
                 try:
-                    if pr.Definition.Name == param.par.Name:
+                    if _parameter_matches(pr, param):
                         if hasattr(param, "rl_par") and hasattr(param.rl_par, "_storage_type"):
                             param.rl_par._storage_type = pr.StorageType
                         value = get_parameter_value(pr) or "None"
