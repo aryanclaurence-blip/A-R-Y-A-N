@@ -145,49 +145,6 @@ def get_ordered_parameters_safe(element):
         return list(element.GetOrderedParameters())
     except Exception:
         return []
-
-
-def parameter_matches(candidate, parameter_info):
-    """Match a Revit parameter to a ParameterInfo identity before falling back to name."""
-    if candidate is None or parameter_info is None:
-        return False
-    try:
-        wanted = getattr(parameter_info, "identity", None)
-        if wanted:
-            kind, value, param_type = wanted
-            if kind == "builtin":
-                try:
-                    return int(candidate.Definition.BuiltInParameter) == value
-                except Exception:
-                    return False
-            if kind == "parameter_id":
-                try:
-                    return get_element_int_id(candidate.Id) == value
-                except Exception:
-                    pass
-            if kind == "definition_id":
-                try:
-                    return get_element_int_id(candidate.Definition.Id) == value
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    try:
-        return strip_accents(candidate.Definition.Name) == strip_accents(parameter_info.par.Name)
-    except Exception:
-        return False
-
-def get_param_value_safe(element, param_ref, doc):
-    """
-    Read parameter value from element (instance first, then type).
-    Accepts a ParameterInfo identity object or a legacy parameter name string.
-    """
-    try:
-        wanted_name = getattr(getattr(param_ref, "par", None), "Name", param_ref)
-        # Instance parameters
-        for pr in get_ordered_parameters_safe(element):
-            try:
-                if parameter_matches(pr, param_ref) or strip_accents(pr.Definition.Name) == strip_accents(wanted_name):
                     return _read_single_param(pr, doc)
             except Exception:
                 continue
@@ -196,7 +153,7 @@ def get_param_value_safe(element, param_ref, doc):
         if typ:
             for pr in get_ordered_parameters_safe(typ):
                 try:
-                    if parameter_matches(pr, param_ref) or strip_accents(pr.Definition.Name) == strip_accents(wanted_name):
+
                         return _read_single_param(pr, doc)
                 except Exception:
                     continue
@@ -717,7 +674,7 @@ def get_range_values_multi(
     for (ele, link_name) in all_element_pairs:
         ele_doc = ele.Document if hasattr(ele, 'Document') else doc
 
-        primary_val = get_param_value_safe(ele, primary_param_info, ele_doc)
+
 
         parts = [u"{} = {}".format(primary_param_name, primary_val)]
         for name in additional_param_names:
@@ -731,7 +688,7 @@ def get_range_values_multi(
         raw_param = None
         for pr in get_ordered_parameters_safe(ele):
             try:
-                if parameter_matches(pr, primary_param_info):
+
                     raw_param = pr
                     break
             except Exception:
@@ -741,7 +698,7 @@ def get_range_values_multi(
                 typ = ele_doc.GetElement(ele.GetTypeId())
                 if typ:
                     for pr in get_ordered_parameters_safe(typ):
-                        if parameter_matches(pr, primary_param_info):
+
                             raw_param = pr
                             break
             except Exception:
@@ -958,7 +915,7 @@ def get_range_values_heatmap(
 
     for (ele, link_name) in all_element_pairs:
         ele_doc = ele.Document if hasattr(ele, 'Document') else doc
-        val_str = get_param_value_safe(ele, primary_param_info, ele_doc)
+
         f = try_parse_float(val_str)
         if f is not None:
             numeric_pairs.append((ele.Id, f, link_name))

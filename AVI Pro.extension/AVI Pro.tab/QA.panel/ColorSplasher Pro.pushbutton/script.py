@@ -1209,14 +1209,6 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._filtered_parameters = []
         self._all_parameters = []
 
-        # Single source of truth for selected workflow state.
-        self.selected_category = None
-        self.selected_category_id = None
-        self.selected_parameter = None
-        self.selected_parameter_identity = None
-        self.selection_scope = "view"
-        self.selected_model_mode = "host"
-        self.color_mode = "standard"
 
         # Category table
         self.table_data = DataTable("Data")
@@ -1234,7 +1226,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         self._table_data_2 = DataTable("Data")
         self._table_data_2.Columns.Add("Key", System.String)
         self._table_data_2.Columns.Add("Value", System.Object)
-        self._table_data_2.Rows.Add("Select Category First", 0)
+
 
         # Loaded links cache
         self._loaded_links = []
@@ -1270,7 +1262,7 @@ class ColorSplasherProWindow(forms.WPFWindow):
         # Primary param combo
         self._list_box1.ItemsSource = self._table_data_2.DefaultView
         self._list_box1.SelectedIndex = 0
-        self._list_box1.IsEnabled = False
+
 
         # Initialize dynamic parameter panel
         self._dynamic_rows = []
@@ -1340,66 +1332,6 @@ class ColorSplasherProWindow(forms.WPFWindow):
                 self.Icon = BitmapImage(Uri(icon_path))
         except Exception as icon_ex:
             logger.debug("Failed to load window icon: %s", str(icon_ex))
-
-    def _reset_selection_state(self, reset_category=True):
-        """Clear category/parameter/value state and synchronize dependent controls."""
-        if reset_category:
-            self.selected_category = None
-            self.selected_category_id = None
-        self.selected_parameter = None
-        self.selected_parameter_identity = None
-        self._all_parameters = []
-        self._all_value_items_raw = []
-        self._display_value_items = []
-        self._table_data_2 = DataTable("Data")
-        self._table_data_2.Columns.Add("Key", System.String)
-        self._table_data_2.Columns.Add("Value", System.Object)
-        self._table_data_2.Rows.Add(
-            "Select Category First" if reset_category or self.selected_category is None else "Select Parameter",
-            0
-        )
-        self._table_data_3 = self._create_empty_table()
-        try:
-            self._list_box1.ItemsSource = self._table_data_2.DefaultView
-            self._list_box1.SelectedIndex = 0
-            self._list_box1.IsEnabled = bool(self.selected_category)
-            self.list_box2.ItemsSource = self._table_data_3.DefaultView
-            self._update_placeholder_visibility()
-        except Exception as ex:
-            logger.debug("Failed to reset ColorSplasher state: %s", str(ex))
-
-    def _sync_workflow_state_from_controls(self):
-        """Synchronize source/scope/mode fields from the UI controls."""
-        if hasattr(self, "_radio_scope_whole") and self._radio_scope_whole.IsChecked:
-            self.selection_scope = "whole"
-        elif hasattr(self, "_radio_scope_selected") and self._radio_scope_selected.IsChecked:
-            self.selection_scope = "selected"
-        else:
-            self.selection_scope = "view"
-
-        if hasattr(self, "_radio_links") and self._radio_links.IsChecked:
-            self.selected_model_mode = "links"
-        elif hasattr(self, "_radio_all") and self._radio_all.IsChecked:
-            self.selected_model_mode = "host_links"
-        else:
-            self.selected_model_mode = "host"
-
-        if hasattr(self, "_radio_heatmap") and self._radio_heatmap.IsChecked:
-            self.color_mode = "heatmap"
-        elif hasattr(self, "_radio_multi") and self._radio_multi.IsChecked:
-            self.color_mode = "multi"
-        else:
-            self.color_mode = "standard"
-
-    def _set_selected_category(self, category_info):
-        self.selected_category = category_info
-        self.selected_category_id = getattr(category_info, "int_id", None)
-        self.selected_parameter = None
-        self.selected_parameter_identity = None
-
-    def _set_selected_parameter(self, parameter_info):
-        self.selected_parameter = parameter_info
-        self.selected_parameter_identity = getattr(parameter_info, "identity", None)
 
     def _update_mode_ui(self):
         """Show/hide secondary/tertiary combos and heat map band selector based on mode."""
