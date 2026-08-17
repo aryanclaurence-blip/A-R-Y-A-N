@@ -145,18 +145,6 @@ def get_ordered_parameters_safe(element):
         return list(element.GetOrderedParameters())
     except Exception:
         return []
-
-def get_param_value_safe(element, param_name, doc):
-    """
-    Read parameter value from element (instance first, then type).
-    Returns string representation or 'None'.
-    """
-    try:
-        from pyrevit import DB as _DB
-        # Instance parameters
-        for pr in get_ordered_parameters_safe(element):
-            try:
-                if strip_accents(pr.Definition.Name) == strip_accents(param_name):
                     return _read_single_param(pr, doc)
             except Exception:
                 continue
@@ -165,7 +153,7 @@ def get_param_value_safe(element, param_name, doc):
         if typ:
             for pr in get_ordered_parameters_safe(typ):
                 try:
-                    if strip_accents(pr.Definition.Name) == strip_accents(param_name):
+
                         return _read_single_param(pr, doc)
                 except Exception:
                     continue
@@ -686,7 +674,7 @@ def get_range_values_multi(
     for (ele, link_name) in all_element_pairs:
         ele_doc = ele.Document if hasattr(ele, 'Document') else doc
 
-        primary_val = get_param_value_safe(ele, primary_param_name, ele_doc)
+
 
         parts = [u"{} = {}".format(primary_param_name, primary_val)]
         for name in additional_param_names:
@@ -700,7 +688,7 @@ def get_range_values_multi(
         raw_param = None
         for pr in get_ordered_parameters_safe(ele):
             try:
-                if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
+
                     raw_param = pr
                     break
             except Exception:
@@ -710,7 +698,7 @@ def get_range_values_multi(
                 typ = ele_doc.GetElement(ele.GetTypeId())
                 if typ:
                     for pr in get_ordered_parameters_safe(typ):
-                        if strip_accents(pr.Definition.Name) == strip_accents(primary_param_name):
+
                             raw_param = pr
                             break
             except Exception:
@@ -927,7 +915,7 @@ def get_range_values_heatmap(
 
     for (ele, link_name) in all_element_pairs:
         ele_doc = ele.Document if hasattr(ele, 'Document') else doc
-        val_str = get_param_value_safe(ele, primary_param_name, ele_doc)
+
         f = try_parse_float(val_str)
         if f is not None:
             numeric_pairs.append((ele.Id, f, link_name))
